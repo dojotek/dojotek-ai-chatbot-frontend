@@ -1,0 +1,37 @@
+---
+description:
+globs:
+alwaysApply: true
+---
+
+Product name is Dojotek AI Chatbot.
+
+It is a software system to help enterprise/company/corporate to build, configure, run, monitor multiple Chatbot AI LLM RAG.
+
+The AI Chatbots can be exposed to multiple channels:
+- Slack
+- Microsoft Team
+- Lark
+- Discord
+- Telegram
+- WhatsApp
+- etc
+
+The original idea of this project is to be used on the following business verticals or company division:
+- Hospital / Clinic
+- Corporate Health Insurance Company
+- Ecommerce
+- Legal and Compliance
+- Sales Enablement
+- Technical Support
+- Customer Support
+
+This repository is dedicated for frontend. Stacks:
+- Next.js
+- TypeScript
+- React.js
+- Tanstack React Query
+- Tailwind CSS
+
+The frontend should be responsive, with mobile-first screen size in mind.
+Also supports iPad and laptop screen size.
