@@ -32,6 +32,8 @@ This repository is dedicated for frontend. Stacks:
 - React.js
 - Tanstack React Query
 - Tailwind CSS
+- Shadcn UI
+- @faker-js/faker to fill tables with fake sample data
 
 The frontend should be responsive, with mobile-first screen size in mind.
 Also supports iPad and laptop screen size.

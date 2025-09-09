@@ -9,6 +9,8 @@ The AI Chatbots can be exposed to multiple channels:
 - Discord
 - Telegram
 - WhatsApp
+- Shopify
+- WordPress
 - intranet company portal as chat widget
 - company public website as chat widget
 - etc
