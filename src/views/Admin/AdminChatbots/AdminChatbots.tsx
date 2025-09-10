@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 import { cn } from "@/lib/utils";
 import { faker } from "@faker-js/faker";
-import { Pencil, Pause, Play, Trash2, Plus } from "lucide-react";
+import { Pencil, Pause, Play, Trash2, Plus, RotateCcw } from "lucide-react";
 import { Pagination } from "@/components/ui/pagination";
 import { ConfirmationDialog } from "@/components/ui/confirmation-dialog";
 
@@ -190,6 +190,7 @@ function AdminChatbots() {
             onClick={resetFilters}
             className="inline-flex w-full md:w-auto items-center justify-center gap-2 rounded-md border px-4 py-2.5 text-sm"
           >
+            <RotateCcw className="h-4 w-4" />
             Reset
           </button>
         </div>

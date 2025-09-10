@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 import { cn } from "@/lib/utils";
 import { faker } from "@faker-js/faker";
-import { Pencil, Pause, Play, Trash2, Plus } from "lucide-react";
+import { Pencil, Pause, Play, Trash2, Plus, RotateCcw } from "lucide-react";
 import { Pagination } from "@/components/ui/pagination";
 import { ConfirmationDialog } from "@/components/ui/confirmation-dialog";
 
@@ -147,6 +147,7 @@ function AdminKnowledges() {
             onClick={resetFilters}
             className="inline-flex w-full md:w-auto items-center justify-center gap-2 rounded-md border px-4 py-2.5 text-sm"
           >
+            <RotateCcw className="h-4 w-4" />
             Reset
           </button>
         </div>
@@ -191,13 +192,14 @@ function AdminKnowledges() {
                   </td>
                   <td className="px-3 py-3">
                     <div className="inline-flex overflow-hidden rounded-md border">
-                      <button
+                      <Link
+                        href={`/admin/knowledges/detail/${k.id}`}
                         className="p-2.5 hover:bg-muted"
                         aria-label="Edit"
                         title="Edit"
                       >
                         <Pencil className="h-4 w-4" />
-                      </button>
+                      </Link>
                       {k.status === "Active" ? (
                         <button
                           onClick={() => handleActionClick("pause", k)}
