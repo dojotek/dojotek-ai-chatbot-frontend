@@ -135,7 +135,7 @@ function AdminChatbots() {
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-semibold md:text-2xl">Chatbots</h1>
         <Link
-          href="#"
+          href="/admin/chatbots/new"
           className={
             cn(
               "inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground",
