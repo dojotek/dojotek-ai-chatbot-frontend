@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 import { faker } from "@faker-js/faker";
 import { Pencil, Trash2, Plus, CheckCircle, AlertTriangle } from "lucide-react";
 import { Pagination } from "@/components/ui/pagination";
+import { ConfirmationDialog } from "@/components/ui/confirmation-dialog";
 
 type UserRole = "Super Admin" | "Admin" | "Operational" | "Read Only";
 
@@ -57,6 +58,17 @@ function AdminUsers() {
   const [role, setRole] = useState<"All" | UserRole>("All");
   const [page, setPage] = useState(1);
   const pageSize = 10;
+  
+  // Confirmation dialog states
+  const [confirmDialog, setConfirmDialog] = useState<{
+    isOpen: boolean;
+    action: "edit" | "delete";
+    user: UserRow | null;
+  }>({
+    isOpen: false,
+    action: "edit",
+    user: null,
+  });
 
   const filtered = useMemo(() => {
     return sampleUsers.filter((u) => {
@@ -79,6 +91,24 @@ function AdminUsers() {
     setPage(1);
   };
 
+  const handleActionClick = (action: "edit" | "delete", user: UserRow) => {
+    setConfirmDialog({
+      isOpen: true,
+      action,
+      user,
+    });
+  };
+
+  const handleConfirmAction = () => {
+    if (!confirmDialog.user) return;
+    
+    // Here you would typically make an API call
+    console.log(`${confirmDialog.action} user:`, confirmDialog.user);
+    
+    // For demo purposes, we'll just log the action
+    // In a real app, you'd edit the user or delete the user
+  };
+
   return (
     <div className="space-y-4 p-4 md:p-6">
       {/* Breadcrumb */}
@@ -96,7 +126,7 @@ function AdminUsers() {
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-semibold md:text-2xl">Users</h1>
         <Link
-          href="#"
+          href="/admin/users/new"
           className={
             cn(
               "inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground",
@@ -201,14 +231,16 @@ function AdminUsers() {
                   </td>
                   <td className="px-3 py-3">
                     <div className="inline-flex overflow-hidden rounded-md border">
-                      <button
+                      <Link
+                        href={`/admin/users/edit/${u.id}`}
                         className="p-2.5 hover:bg-muted"
                         aria-label="Edit"
                         title="Edit"
                       >
                         <Pencil className="h-4 w-4" />
-                      </button>
+                      </Link>
                       <button
+                        onClick={() => handleActionClick("delete", u)}
                         className="border-l p-2.5 text-red-600 hover:bg-muted"
                         aria-label="Delete"
                         title="Delete"
@@ -236,6 +268,18 @@ function AdminUsers() {
           siblingCount={1}
         />
       </div>
+
+      {/* Confirmation Dialog */}
+      <ConfirmationDialog
+        isOpen={confirmDialog.isOpen}
+        onClose={() => setConfirmDialog(prev => ({ ...prev, isOpen: false }))}
+        onConfirm={handleConfirmAction}
+        title="Confirm Action"
+        message={`Are you sure to ${confirmDialog.action} ${confirmDialog.user?.name}?`}
+        confirmText="OK"
+        cancelText="Cancel"
+        variant={confirmDialog.action === "delete" ? "destructive" : "default"}
+      />
     </div>
   );
 }
