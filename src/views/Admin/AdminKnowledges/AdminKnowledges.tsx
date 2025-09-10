@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 import { faker } from "@faker-js/faker";
 import { Pencil, Pause, Play, Trash2, Plus } from "lucide-react";
 import { Pagination } from "@/components/ui/pagination";
+import { ConfirmationDialog } from "@/components/ui/confirmation-dialog";
 
 type Knowledge = {
   id: string;
@@ -39,6 +40,17 @@ function AdminKnowledges() {
   const [status, setStatus] = useState<"All" | "Active" | "Inactive">("All");
   const [page, setPage] = useState(1);
   const pageSize = 10;
+  
+  // Confirmation dialog states
+  const [confirmDialog, setConfirmDialog] = useState<{
+    isOpen: boolean;
+    action: "pause" | "resume" | "delete";
+    knowledge: Knowledge | null;
+  }>({
+    isOpen: false,
+    action: "pause",
+    knowledge: null,
+  });
 
   const filtered = useMemo(() => {
     return sampleKnowledges.filter((k) => {
@@ -56,6 +68,24 @@ function AdminKnowledges() {
     setKeyword("");
     setStatus("All");
     setPage(1);
+  };
+
+  const handleActionClick = (action: "pause" | "resume" | "delete", knowledge: Knowledge) => {
+    setConfirmDialog({
+      isOpen: true,
+      action,
+      knowledge,
+    });
+  };
+
+  const handleConfirmAction = () => {
+    if (!confirmDialog.knowledge) return;
+    
+    // Here you would typically make an API call
+    console.log(`${confirmDialog.action} knowledge:`, confirmDialog.knowledge);
+    
+    // For demo purposes, we'll just log the action
+    // In a real app, you'd update the knowledge status or delete the knowledge
   };
 
   return (
@@ -170,6 +200,7 @@ function AdminKnowledges() {
                       </button>
                       {k.status === "Active" ? (
                         <button
+                          onClick={() => handleActionClick("pause", k)}
                           className="border-l p-2.5 hover:bg-muted"
                           aria-label="Pause"
                           title="Pause"
@@ -178,6 +209,7 @@ function AdminKnowledges() {
                         </button>
                       ) : (
                         <button
+                          onClick={() => handleActionClick("resume", k)}
                           className="border-l p-2.5 hover:bg-muted"
                           aria-label="Resume"
                           title="Resume"
@@ -186,6 +218,7 @@ function AdminKnowledges() {
                         </button>
                       )}
                       <button
+                        onClick={() => handleActionClick("delete", k)}
                         className="border-l p-2.5 text-red-600 hover:bg-muted"
                         aria-label="Delete"
                         title="Delete"
@@ -213,6 +246,18 @@ function AdminKnowledges() {
           siblingCount={1}
         />
       </div>
+
+      {/* Confirmation Dialog */}
+      <ConfirmationDialog
+        isOpen={confirmDialog.isOpen}
+        onClose={() => setConfirmDialog(prev => ({ ...prev, isOpen: false }))}
+        onConfirm={handleConfirmAction}
+        title="Confirm Action"
+        message={`Are you sure to ${confirmDialog.action} ${confirmDialog.knowledge?.title}?`}
+        confirmText="OK"
+        cancelText="Cancel"
+        variant={confirmDialog.action === "delete" ? "destructive" : "default"}
+      />
     </div>
   );
 }
