@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 import { faker } from "@faker-js/faker";
 import { Trash2, Plus, Loader2 } from "lucide-react";
 import { Pagination } from "@/components/ui/pagination";
+import { ConfirmationDialog } from "@/components/ui/confirmation-dialog";
 
 type SettingType = "General" | "Sensitive";
 type SettingStatus = "Active" | "Inactive";
@@ -56,10 +57,39 @@ function AdminSystemSettings() {
 
   // Simple toast state
   const [toastVisible, setToastVisible] = useState(false);
+  
+  // Confirmation dialog states
+  const [confirmDialog, setConfirmDialog] = useState<{
+    isOpen: boolean;
+    action: "delete";
+    setting: SettingRow | null;
+  }>({
+    isOpen: false,
+    action: "delete",
+    setting: null,
+  });
 
   const showToast = () => {
     setToastVisible(true);
     window.setTimeout(() => setToastVisible(false), 1400);
+  };
+
+  const handleActionClick = (action: "delete", setting: SettingRow) => {
+    setConfirmDialog({
+      isOpen: true,
+      action,
+      setting,
+    });
+  };
+
+  const handleConfirmAction = () => {
+    if (!confirmDialog.setting) return;
+    
+    // Here you would typically make an API call
+    console.log(`${confirmDialog.action} setting:`, confirmDialog.setting);
+    
+    // For demo purposes, we'll just log the action
+    // In a real app, you'd delete the setting
   };
 
   const filtered = useMemo(() => {
@@ -116,7 +146,6 @@ function AdminSystemSettings() {
       </div>
 
       {/* Filters */}
-      <div className="grid grid-cols-1 gap-2 md:grid-cols-2 lg:grid-cols-5 rounded-md border bg.white p-3 md:p-4"></div>
       <div className="grid grid-cols-1 gap-2 md:grid-cols-2 lg:grid-cols-5 rounded-md border bg-white p-3 md:p-4">
         <input
           type="text"
@@ -253,6 +282,7 @@ function AdminSystemSettings() {
                   <td className="px-3 py-3">
                     <div className="inline-flex overflow-hidden rounded-md border">
                       <button
+                        onClick={() => handleActionClick("delete", s)}
                         className="p-2.5 text-red-600 hover:bg-muted"
                         aria-label="Delete"
                         title="Delete"
@@ -287,6 +317,18 @@ function AdminSystemSettings() {
           Setting Saved
         </div>
       ) : null}
+
+      {/* Confirmation Dialog */}
+      <ConfirmationDialog
+        isOpen={confirmDialog.isOpen}
+        onClose={() => setConfirmDialog(prev => ({ ...prev, isOpen: false }))}
+        onConfirm={handleConfirmAction}
+        title="Confirm Action"
+        message={`Are you sure to ${confirmDialog.action} ${confirmDialog.setting?.key}?`}
+        confirmText="OK"
+        cancelText="Cancel"
+        variant={confirmDialog.action === "delete" ? "destructive" : "default"}
+      />
     </div>
   );
 }
