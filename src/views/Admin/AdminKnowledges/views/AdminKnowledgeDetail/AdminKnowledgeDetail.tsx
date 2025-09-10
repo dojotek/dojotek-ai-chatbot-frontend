@@ -42,22 +42,22 @@ function AdminKnowledgeDetail() {
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
         <div className="w-full bg-gray-200 rounded-lg p-1">
-          <TabsList className="w-full h-auto bg-transparent p-0 justify-start relative">
+          <TabsList className="w-full h-auto bg-transparent p-0 justify-start relative flex flex-col md:flex-row gap-1 md:gap-0">
             <TabsTrigger 
               value="files" 
-              className="bg-white text-gray-700 hover:bg-gray-50 data-[state=active]:bg-blue-500 data-[state=active]:text-white transition-all duration-300 ease-in-out relative z-10 rounded-l-md rounded-r-none"
+              className="w-full md:w-auto text-left md:text-center py-3 md:py-2 bg-white text-gray-700 hover:bg-gray-50 data-[state=active]:bg-blue-500 data-[state=active]:text-white transition-all duration-300 ease-in-out relative z-10 rounded-md md:rounded-l-md md:rounded-r-none"
             >
               Files
             </TabsTrigger>
             <TabsTrigger 
               value="playground" 
-              className="bg-white text-gray-700 hover:bg-gray-50 data-[state=active]:bg-blue-500 data-[state=active]:text-white transition-all duration-300 ease-in-out relative z-10 rounded-none"
+              className="w-full md:w-auto text-left md:text-center py-3 md:py-2 bg-white text-gray-700 hover:bg-gray-50 data-[state=active]:bg-blue-500 data-[state=active]:text-white transition-all duration-300 ease-in-out relative z-10 rounded-md md:rounded-none"
             >
               Playground
             </TabsTrigger>
             <TabsTrigger 
               value="configuration" 
-              className="bg-white text-gray-700 hover:bg-gray-50 data-[state=active]:bg-blue-500 data-[state=active]:text-white transition-all duration-300 ease-in-out relative z-10 rounded-r-md rounded-l-none"
+              className="w-full md:w-auto text-left md:text-center py-3 md:py-2 bg-white text-gray-700 hover:bg-gray-50 data-[state=active]:bg-blue-500 data-[state=active]:text-white transition-all duration-300 ease-in-out relative z-10 rounded-md md:rounded-r-md md:rounded-l-none"
             >
               Configuration
             </TabsTrigger>
