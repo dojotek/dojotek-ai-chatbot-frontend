@@ -18,7 +18,7 @@ interface NavbarProps {
 
 export function Navbar({ onMenuClick }: NavbarProps) {
   return (
-    <header className="sticky top-0 z-40 flex h-16 items-center justify-between border-b border-border bg-background px-4 lg:px-6">
+    <header className="sticky top-0 z-40 flex h-16 items-center justify-between border-b border-border bg-white px-4 lg:px-6">
       {/* Left side - Menu button and Logo */}
       <div className="flex items-center space-x-4">
         <Button
@@ -47,7 +47,7 @@ export function Navbar({ onMenuClick }: NavbarProps) {
               <span className="hidden sm:block">Andy Primawan</span>
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-56">
+          <DropdownMenuContent align="end" className="w-56 bg-white">
             <DropdownMenuLabel>My Account</DropdownMenuLabel>
             <DropdownMenuSeparator />
             <DropdownMenuItem asChild>
