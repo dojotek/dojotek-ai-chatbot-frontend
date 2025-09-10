@@ -28,6 +28,7 @@ const menuItems = [
   { name: "Channels", href: "/admin/channels", icon: MessageSquare },
   { name: "Chat Sessions", href: "/admin/chat-sessions", icon: MessageCircle },
   { name: "Users", href: "/admin/users", icon: UserCog },
+  { name: "Roles", href: "/admin/roles", icon: UserCog },
   { name: "System Settings", href: "/admin/system-settings", icon: Settings },
   { name: "Preferences", href: "/admin/preferences", icon: Settings },
   { name: "About", href: "/admin/about", icon: Info },
