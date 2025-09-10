@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 import { faker } from "@faker-js/faker";
 import { Pencil, Pause, Play, Trash2, RotateCcw, Plus } from "lucide-react";
 import { Pagination } from "@/components/ui/pagination";
+import { ConfirmationDialog } from "@/components/ui/confirmation-dialog";
 
 type Customer = {
   id: string;
@@ -31,6 +32,17 @@ function AdminCustomers() {
   const [status, setStatus] = useState<"All" | "Active" | "Inactive">("All");
   const [page, setPage] = useState(1);
   const pageSize = 10;
+  
+  // Confirmation dialog states
+  const [confirmDialog, setConfirmDialog] = useState<{
+    isOpen: boolean;
+    action: "pause" | "resume" | "delete";
+    customer: Customer | null;
+  }>({
+    isOpen: false,
+    action: "pause",
+    customer: null,
+  });
 
   const filtered = useMemo(() => {
     return sampleCustomers.filter((c) => {
@@ -50,6 +62,24 @@ function AdminCustomers() {
     setPage(1);
   };
 
+  const handleActionClick = (action: "pause" | "resume" | "delete", customer: Customer) => {
+    setConfirmDialog({
+      isOpen: true,
+      action,
+      customer,
+    });
+  };
+
+  const handleConfirmAction = () => {
+    if (!confirmDialog.customer) return;
+    
+    // Here you would typically make an API call
+    console.log(`${confirmDialog.action} customer:`, confirmDialog.customer);
+    
+    // For demo purposes, we'll just log the action
+    // In a real app, you'd update the customer status or delete the customer
+  };
+
   return (
     <div className="space-y-4 p-4 md:p-6">
       {/* Breadcrumb */}
@@ -67,7 +97,7 @@ function AdminCustomers() {
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-semibold md:text-2xl">Customers</h1>
         <Link
-          href="#"
+          href="/admin/customers/new"
           className={cn(
             "inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground",
             "border border-primary shadow-sm hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
@@ -148,15 +178,17 @@ function AdminCustomers() {
                   </td>
                   <td className="px-3 py-3">
                     <div className="inline-flex overflow-hidden rounded-md border">
-                      <button
+                      <Link
+                        href={`/admin/customers/edit/${c.id}`}
                         className="p-2.5 hover:bg-muted"
                         aria-label="Edit"
                         title="Edit"
                       >
                         <Pencil className="h-4 w-4" />
-                      </button>
+                      </Link>
                       {c.status === "Active" ? (
                         <button
+                          onClick={() => handleActionClick("pause", c)}
                           className="border-l p-2.5 hover:bg-muted"
                           aria-label="Pause"
                           title="Pause"
@@ -165,6 +197,7 @@ function AdminCustomers() {
                         </button>
                       ) : (
                         <button
+                          onClick={() => handleActionClick("resume", c)}
                           className="border-l p-2.5 hover:bg-muted"
                           aria-label="Resume"
                           title="Resume"
@@ -173,6 +206,7 @@ function AdminCustomers() {
                         </button>
                       )}
                       <button
+                        onClick={() => handleActionClick("delete", c)}
                         className="border-l p-2.5 text-red-600 hover:bg-muted"
                         aria-label="Delete"
                         title="Delete"
@@ -200,6 +234,18 @@ function AdminCustomers() {
           siblingCount={1}
         />
       </div>
+
+      {/* Confirmation Dialog */}
+      <ConfirmationDialog
+        isOpen={confirmDialog.isOpen}
+        onClose={() => setConfirmDialog(prev => ({ ...prev, isOpen: false }))}
+        onConfirm={handleConfirmAction}
+        title="Confirm Action"
+        message={`Are you sure to ${confirmDialog.action} ${confirmDialog.customer?.name}?`}
+        confirmText="OK"
+        cancelText="Cancel"
+        variant={confirmDialog.action === "delete" ? "destructive" : "default"}
+      />
     </div>
   );
 }

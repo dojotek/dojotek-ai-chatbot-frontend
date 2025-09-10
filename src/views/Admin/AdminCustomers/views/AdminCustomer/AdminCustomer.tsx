@@ -1,5 +1,183 @@
+"use client";
+
+import { useState } from "react";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { z } from "zod";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { ArrowLeft, Save } from "lucide-react";
+import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Select } from "@/components/ui/select";
+import { Collapsible } from "@/components/ui/collapsible";
+
+// Form validation schema
+const customerSchema = z.object({
+  name: z.string().min(1, "Name is required"),
+  status: z.enum(["Active", "Inactive"]),
+  note: z.string().optional(),
+});
+
+type CustomerFormData = z.infer<typeof customerSchema>;
+
 function AdminCustomer() {
-  return <div>AdminCustomer</div>;
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const router = useRouter();
+
+  const {
+    register,
+    handleSubmit,
+    formState: { errors },
+    reset,
+  } = useForm<CustomerFormData>({
+    resolver: zodResolver(customerSchema),
+    defaultValues: {
+      name: "",
+      status: "Active",
+      note: "",
+    },
+  });
+
+  const onSubmit = async (data: CustomerFormData) => {
+    setIsSubmitting(true);
+    try {
+      // Simulate API call
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      console.log("Form submitted:", data);
+      // Navigate back to customers list after successful save
+      router.push("/admin/customers");
+    } catch (error) {
+      console.error("Error submitting form:", error);
+      // Handle error (e.g., show error toast)
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleCancel = () => {
+    reset();
+    // Navigate back to customers list
+    router.push("/admin/customers");
+  };
+
+  return (
+    <div className="space-y-4 p-4 md:p-6">
+      {/* Breadcrumb */}
+      <nav className="text-sm text-muted-foreground" aria-label="Breadcrumb">
+        <ol className="flex items-center gap-2">
+          <li>
+            <Link href="/admin/dashboards" className="hover:underline">Dashboard</Link>
+          </li>
+          <li>/</li>
+          <li>
+            <Link href="/admin/customers" className="hover:underline">Customers</Link>
+          </li>
+          <li>/</li>
+          <li className="text-foreground">Customer Details</li>
+        </ol>
+      </nav>
+
+      {/* Header with Back Button and Title */}
+      <div className="flex items-center gap-4">
+        <Link
+          href="/admin/customers"
+          className="inline-flex items-center justify-center rounded-md border border-input bg-background p-2 hover:bg-accent hover:text-accent-foreground transition-colors"
+        >
+          <ArrowLeft className="h-4 w-4" />
+        </Link>
+        <h1 className="text-xl font-semibold md:text-2xl">Customer Details</h1>
+      </div>
+
+      {/* Form */}
+      <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
+        {/* Collapsible Section */}
+        <Collapsible title="Customer Information" defaultOpen={true}>
+          <div className="grid grid-cols-1 gap-10 md:grid-cols-2">
+            {/* Name Field */}
+            <div className="space-y-2">
+              <label htmlFor="name" className="text-sm font-medium">
+                Name <span className="text-red-500">*</span>
+              </label>
+              <Input
+                id="name"
+                {...register("name")}
+                placeholder="Enter customer name"
+                className={cn(
+                  errors.name && "border-red-500 focus-visible:ring-red-500"
+                )}
+              />
+              {errors.name && (
+                <p className="text-sm text-red-500">{errors.name.message}</p>
+              )}
+            </div>
+
+            {/* Status Field */}
+            <div className="space-y-2">
+              <label htmlFor="status" className="text-sm font-medium">
+                Status <span className="text-red-500">*</span>
+              </label>
+              <Select
+                id="status"
+                {...register("status")}
+                className={cn(
+                  errors.status && "border-red-500 focus-visible:ring-red-500"
+                )}
+              >
+                <option value="Active">Active</option>
+                <option value="Inactive">Inactive</option>
+              </Select>
+              {errors.status && (
+                <p className="text-sm text-red-500">{errors.status.message}</p>
+              )}
+            </div>
+
+            {/* Note Field - Full Width */}
+            <div className="space-y-2">
+              <label htmlFor="note" className="text-sm font-medium">
+                Note
+              </label>
+              <Textarea
+                id="note"
+                {...register("note")}
+                placeholder="Enter additional notes..."
+                rows={3}
+                className={cn(
+                  errors.note && "border-red-500 focus-visible:ring-red-500"
+                )}
+              />
+              {errors.note && (
+                <p className="text-sm text-red-500">{errors.note.message}</p>
+              )}
+            </div>
+          </div>
+        </Collapsible>
+
+        {/* Action Buttons */}
+        <div className="flex flex-col gap-3 md:flex-row md:justify-end md:gap-4">
+          <Button
+            type="submit"
+            variant="outline"
+            disabled={isSubmitting}
+            className="w-full md:w-auto px-8"
+          >
+            <Save className="mr-2 h-4 w-4" />
+            {isSubmitting ? "Saving..." : "Save"}
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={handleCancel}
+            className="w-full md:w-auto px-8"
+          >
+            Cancel
+          </Button>
+        </div>
+      </form>
+    </div>
+  );
 }
 
 export default AdminCustomer;
