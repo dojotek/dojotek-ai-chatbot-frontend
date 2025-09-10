@@ -64,7 +64,7 @@ export function Navbar({ onMenuClick }: NavbarProps) {
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem asChild>
-              <Link href="/signout" className="flex items-center text-destructive">
+              <Link href="/sign-in" className="flex items-center text-destructive">
                 <LogOut className="mr-2 h-4 w-4" />
                 Sign Out
               </Link>

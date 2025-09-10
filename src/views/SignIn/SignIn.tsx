@@ -1,8 +1,10 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 
 function SignIn() {
+  const router = useRouter();
   const [email, setEmail] = useState<string>("");
   const [password, setPassword] = useState<string>("");
   const [remember, setRemember] = useState<boolean>(false);
@@ -28,6 +30,9 @@ function SignIn() {
     // Placeholder submit. Wire up to real auth later.
      
     console.log({ email, passwordMasked: "••••••••", remember });
+    
+    // Redirect to admin dashboard after successful sign in
+    router.push("/admin/dashboards");
   };
 
   return (
@@ -119,7 +124,7 @@ function SignIn() {
               <button
                 type="submit"
                 disabled={!canSubmit}
-                className="w-full rounded-md bg-foreground px-4 py-2.5 text-sm font-medium text-background disabled:opacity-60 disabled:cursor-not-allowed"
+                className="w-full rounded-md bg-foreground border border-foreground px-4 py-2.5 text-sm font-medium text-background hover:bg-foreground/90 hover:border-foreground/90 transition-colors disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:bg-foreground disabled:hover:border-foreground"
               >
                 Sign In
               </button>

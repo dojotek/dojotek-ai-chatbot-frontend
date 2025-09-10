@@ -31,7 +31,7 @@ const menuItems = [
   { name: "System Settings", href: "/admin/system-settings", icon: Settings },
   { name: "Preferences", href: "/admin/preferences", icon: Settings },
   { name: "About", href: "/admin/about", icon: Info },
-  { name: "Sign Out", href: "/signout", icon: LogOut },
+  { name: "Sign Out", href: "/sign-in", icon: LogOut },
 ];
 
 interface SidebarProps {
