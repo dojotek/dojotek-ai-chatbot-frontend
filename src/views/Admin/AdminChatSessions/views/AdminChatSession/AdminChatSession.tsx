@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { faker } from "@faker-js/faker";
+import { ArrowLeft } from "lucide-react";
 
 type ChatMessage = {
   id: string;
@@ -90,30 +91,19 @@ function AdminChatSession() {
         </ol>
       </nav>
 
+      {/* Header with Back Button and Title */}
+      <div className="flex items-center gap-4">
+        <Link
+          href="/admin/chat-sessions"
+          className="inline-flex items-center justify-center rounded-md border border-input bg-background p-2 hover:bg-accent hover:text-accent-foreground transition-colors"
+        >
+          <ArrowLeft className="h-4 w-4" />
+        </Link>
+        <h1 className="text-xl font-semibold md:text-2xl">Session Details</h1>
+      </div>
+
       {/* Session Details */}
       <div className="rounded-md border bg-white p-8 md:p-8">
-        <div className="mb-8 flex items-center gap-3">
-          <Link 
-            href="/admin/chat-sessions"
-            className="flex items-center justify-center w-8 h-8 rounded-md border border-gray-200 hover:bg-gray-50 transition-colors"
-            title="Back to Chat Sessions"
-          >
-            <svg 
-              className="w-4 h-4 text-gray-600" 
-              fill="none" 
-              stroke="currentColor" 
-              viewBox="0 0 24 24"
-            >
-              <path 
-                strokeLinecap="round" 
-                strokeLinejoin="round" 
-                strokeWidth={2} 
-                d="M15 19l-7-7 7-7" 
-              />
-            </svg>
-          </Link>
-          <h2 className="text-lg font-semibold">Session Details</h2>
-        </div>
         <div className="grid grid-cols-1 gap-8 md:grid-cols-2">
           <div className="space-y-1">
             <dt className="text-sm font-medium text-muted-foreground">CUSTOMER</dt>
