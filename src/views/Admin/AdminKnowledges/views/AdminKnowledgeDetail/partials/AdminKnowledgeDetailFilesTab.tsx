@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { FileText, Download, Trash2, Edit, RotateCcw } from "lucide-react";
+import { FileText, Download, Trash2, Edit } from "lucide-react";
 import { Pagination } from "@/components/ui/pagination";
 import { ConfirmationDialog } from "@/components/ui/confirmation-dialog";
 import { cn } from "@/lib/utils";
@@ -44,10 +44,14 @@ const sampleFiles: KnowledgeFile[] = (() => {
   return rows;
 })();
 
-function AdminKnowledgeDetailFilesTab() {
-  const [keyword, setKeyword] = useState("");
-  const [status, setStatus] = useState<"All" | "Error" | "Pending" | "Processing" | "Processed">("All");
-  const [page, setPage] = useState(1);
+type Props = {
+  keyword: string;
+  status: "All" | "Error" | "Pending" | "Processing" | "Processed";
+  page: number;
+  onPageChange: (page: number) => void;
+};
+
+function AdminKnowledgeDetailFilesTab({ keyword, status, page, onPageChange }: Props) {
   const pageSize = 10;
   
   // Confirmation dialog states
@@ -73,11 +77,7 @@ function AdminKnowledgeDetailFilesTab() {
   const currentPage = Math.min(page, totalPages);
   const paged = filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize);
 
-  const resetFilters = () => {
-    setKeyword("");
-    setStatus("All");
-    setPage(1);
-  };
+  // Filters are controlled by parent
 
   const handleActionClick = (action: "delete", file: KnowledgeFile) => {
     setConfirmDialog({
@@ -99,42 +99,7 @@ function AdminKnowledgeDetailFilesTab() {
 
   return (
     <div className="space-y-4">
-      {/* Filters */}
-      <div className="grid grid-cols-1 gap-2 md:grid-cols-2 lg:grid-cols-4 rounded-md border bg-white p-3 md:p-4">
-        <input
-          type="text"
-          value={keyword}
-          onChange={(e) => {
-            setPage(1);
-            setKeyword(e.target.value);
-          }}
-          placeholder="Search files..."
-          className="w-full rounded-md border bg-background px-4 py-2.5 text-sm"
-        />
-        <select
-          value={status}
-          onChange={(e) => {
-            setPage(1);
-            setStatus(e.target.value as any);
-          }}
-          className="w-full rounded-md border bg-background px-4 py-2.5 text-sm"
-        >
-          <option value="All">All Status</option>
-          <option value="Error">Error</option>
-          <option value="Pending">Pending</option>
-          <option value="Processing">Processing</option>
-          <option value="Processed">Processed</option>
-        </select>
-        <div className="flex md:col-span-2 lg:col-span-1">
-          <button
-            onClick={resetFilters}
-            className="inline-flex w-full md:w-auto items-center justify-center gap-2 rounded-md border px-4 py-2.5 text-sm"
-          >
-            <RotateCcw className="h-4 w-4" />
-            Reset
-          </button>
-        </div>
-      </div>
+      {/* Filters moved to parent */}
 
       {/* Table */}
       <div className="overflow-x-auto rounded-md border">
@@ -225,7 +190,7 @@ function AdminKnowledgeDetailFilesTab() {
         <Pagination
           currentPage={currentPage}
           totalPages={totalPages}
-          onPageChange={(p) => setPage(p)}
+          onPageChange={onPageChange}
           siblingCount={1}
         />
       </div>

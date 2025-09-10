@@ -1,12 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { Send, Bot, User, RotateCcw } from "lucide-react";
+import { Send, Bot, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Collapsible } from "@/components/ui/collapsible";
-import { MultiSelectFilter, MultiSelectOption } from "@/components/ui/multi-select-filter";
-import { faker } from "@faker-js/faker";
+ 
 
 interface Message {
   id: string;
@@ -15,55 +14,13 @@ interface Message {
   timestamp: Date;
 }
 
-type KnowledgeFile = {
-  id: string;
-  name: string;
-  tokens: string;
-  uploadedAt: string;
-  status: "Error" | "Pending" | "Processing" | "Processed";
+type Props = {
+  selectedFiles: string[];
 };
 
-// Sample files data (same as in AdminKnowledgeDetailFilesTab)
-const sampleFiles: KnowledgeFile[] = (() => {
-  const rows: KnowledgeFile[] = [];
-  const fileExtensions = ["pdf", "docx", "pptx", "txt"];
-  const statuses: KnowledgeFile["status"][] = ["Error", "Pending", "Processing", "Processed"];
-  const tokenRanges = ["10+", "50+", "100+", "300+", "500+", "800+", "1200+", "2000+"];
-  
-  for (let i = 0; i < 50; i++) {
-    const ext = faker.helpers.arrayElement(fileExtensions);
-    const status = faker.helpers.arrayElement(statuses);
-    const tokens = faker.helpers.arrayElement(tokenRanges);
-    
-    rows.push({
-      id: faker.string.uuid(),
-      name: `${faker.lorem.words(2).replace(/\s/g, '-')}.${ext}`,
-      tokens,
-      uploadedAt: faker.date.recent({ days: 30 }).toLocaleDateString('en-US', {
-        year: 'numeric',
-        month: 'long',
-        day: '2-digit',
-        hour: '2-digit',
-        minute: '2-digit',
-        hour12: true
-      }),
-      status,
-    });
-  }
-  return rows;
-})();
-
-// Convert sampleFiles to MultiSelectOption format
-const fileOptions: MultiSelectOption[] = sampleFiles.map(file => ({
-  value: file.id,
-  label: file.name,
-  disabled: false
-}));
-
-function AdminKnowledgeDetailPlaygroundTab() {
+function AdminKnowledgeDetailPlaygroundTab({ selectedFiles }: Props) { // eslint-disable-line @typescript-eslint/no-unused-vars
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
-  const [selectedFiles, setSelectedFiles] = useState<string[]>([]);
   const [messages, setMessages] = useState<Message[]>([
     {
       id: "1",
@@ -113,37 +70,9 @@ function AdminKnowledgeDetailPlaygroundTab() {
     }
   };
 
-  const resetFilters = () => {
-    setSelectedFiles([]);
-  };
-
   return (
     <div className="space-y-6">
-      {/* Filters */}
-      <div className="grid grid-cols-1 gap-2 md:grid-cols-2 lg:grid-cols-4 rounded-md border bg-white p-3 md:p-4">
-        <div className="relative">
-          <MultiSelectFilter
-            options={fileOptions}
-            selectedValues={selectedFiles}
-            onSelectionChange={setSelectedFiles}
-            placeholder="Select files to filter..."
-            searchPlaceholder="Search files..."
-            emptyMessage="No files found"
-            selectAllText="All files"
-            clearAllText="Clear files"
-            className="w-full"
-          />
-        </div>
-        <div className="flex md:col-span-2 lg:col-span-1">
-          <button
-            onClick={resetFilters}
-            className="inline-flex w-full md:w-auto items-center justify-center gap-2 rounded-md border px-4 py-2.5 text-sm"
-          >
-            <RotateCcw className="h-4 w-4" />
-            Reset
-          </button>
-        </div>
-      </div>
+      {/* Filters moved to parent */}
 
       {/* Chat Messages */}
       <div className="space-y-4 max-h-96 overflow-y-auto">
