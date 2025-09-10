@@ -1,10 +1,12 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import { faker } from "@faker-js/faker";
 import { Eye, Trash2 } from "lucide-react";
 import { Pagination } from "@/components/ui/pagination";
+import { ConfirmationDialog } from "@/components/ui/confirmation-dialog";
 
 type ChannelPlatform =
   | "Slack"
@@ -65,11 +67,23 @@ function formatInitiatedAt(date: Date) {
 }
 
 function AdminChatSessions() {
+  const router = useRouter();
   const [chatbot, setChatbot] = useState<string>("All");
   const [channel, setChannel] = useState<"All" | ChannelPlatform>("All");
   const [customer, setCustomer] = useState<string>("");
   const [page, setPage] = useState(1);
   const pageSize = 10;
+  
+  // Confirmation dialog states
+  const [confirmDialog, setConfirmDialog] = useState<{
+    isOpen: boolean;
+    action: "delete";
+    session: ChatSessionRow | null;
+  }>({
+    isOpen: false,
+    action: "delete",
+    session: null,
+  });
 
   const chatbotOptions = useMemo(() => {
     return Array.from(new Set(sampleChatSessions.map((r) => r.chatbotTitle))).sort();
@@ -97,6 +111,28 @@ function AdminChatSessions() {
     setChannel("All");
     setCustomer("");
     setPage(1);
+  };
+
+  const handleViewClick = (session: ChatSessionRow) => {
+    router.push(`/admin/chat-sessions/edit/${session.id}`);
+  };
+
+  const handleDeleteClick = (session: ChatSessionRow) => {
+    setConfirmDialog({
+      isOpen: true,
+      action: "delete",
+      session,
+    });
+  };
+
+  const handleConfirmAction = () => {
+    if (!confirmDialog.session) return;
+    
+    // Here you would typically make an API call
+    console.log(`${confirmDialog.action} session:`, confirmDialog.session);
+    
+    // For demo purposes, we'll just log the action
+    // In a real app, you'd view the session details or delete the session
   };
 
   return (
@@ -204,6 +240,7 @@ function AdminChatSessions() {
                   <td className="px-3 py-3">
                     <div className="inline-flex overflow-hidden rounded-md border">
                       <button
+                        onClick={() => handleViewClick(r)}
                         className="p-2.5 hover:bg-muted"
                         aria-label="View"
                         title="View"
@@ -211,6 +248,7 @@ function AdminChatSessions() {
                         <Eye className="h-4 w-4" />
                       </button>
                       <button
+                        onClick={() => handleDeleteClick(r)}
                         className="border-l p-2.5 text-red-600 hover:bg-muted"
                         aria-label="Delete"
                         title="Delete"
@@ -238,6 +276,18 @@ function AdminChatSessions() {
           siblingCount={1}
         />
       </div>
+
+      {/* Confirmation Dialog */}
+      <ConfirmationDialog
+        isOpen={confirmDialog.isOpen}
+        onClose={() => setConfirmDialog(prev => ({ ...prev, isOpen: false }))}
+        onConfirm={handleConfirmAction}
+        title="Confirm Action"
+        message={`Are you sure to ${confirmDialog.action} this chat session?`}
+        confirmText="OK"
+        cancelText="Cancel"
+        variant={confirmDialog.action === "delete" ? "destructive" : "default"}
+      />
     </div>
   );
 }
