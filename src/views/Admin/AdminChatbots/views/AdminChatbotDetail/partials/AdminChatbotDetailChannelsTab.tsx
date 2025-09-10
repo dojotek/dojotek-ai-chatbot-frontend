@@ -2,7 +2,6 @@
 
 import { useMemo, useState } from "react";
 import { cn } from "@/lib/utils";
-import { faker } from "@faker-js/faker";
 import { Pencil, Pause, Play, Trash2 } from "lucide-react";
 import { ConfirmationDialog } from "@/components/ui/confirmation-dialog";
 
@@ -23,32 +22,6 @@ type ChannelRow = {
   status: "Active" | "Inactive";
 };
 
-const PLATFORM_OPTIONS: ChannelPlatform[] = [
-  "Slack",
-  "Microsoft Team",
-  "Lark",
-  "Discord",
-  "Shopify",
-  "WordPress",
-];
-
-const VERSION_OPTIONS: string[] = ["v2025.09.1", "v2025.10.1"];
-
-const sampleChannels: ChannelRow[] = (() => {
-  const rows: ChannelRow[] = [];
-  for (let i = 0; i < 20; i++) {
-    const isActive = faker.number.int({ min: 0, max: 100 }) < 70;
-    rows.push({
-      id: faker.string.uuid(),
-      company: faker.company.name(),
-      platform: faker.helpers.arrayElement(PLATFORM_OPTIONS),
-      version: faker.helpers.arrayElement(VERSION_OPTIONS),
-      chats24h: faker.number.int({ min: 10, max: 4000 }),
-      status: isActive ? "Active" : "Inactive",
-    });
-  }
-  return rows;
-})();
 
 function formatChatsShort(value: number) {
   if (value < 50) {
@@ -67,10 +40,14 @@ function formatChatsShort(value: number) {
   return `${flooredToHundred0}+`;
 }
 
-function AdminChatbotDetailChannelsTab() {
-  const [customer, setCustomer] = useState<string>("All");
-  const [type, setType] = useState<"All" | ChannelPlatform>("All");
-  const [status, setStatus] = useState<"All" | "Active" | "Inactive">("All");
+type Props = {
+  rows: ChannelRow[];
+  customer: string;
+  type: "All" | ChannelPlatform;
+  status: "All" | "Active" | "Inactive";
+};
+
+function AdminChatbotDetailChannelsTab({ rows, customer, type, status }: Props) {
   const [confirmDialog, setConfirmDialog] = useState<{
     isOpen: boolean;
     action: "pause" | "resume" | "delete";
@@ -80,12 +57,6 @@ function AdminChatbotDetailChannelsTab() {
     action: "pause",
     channel: null,
   });
-
-  const rows = useMemo(() => sampleChannels, []);
-
-  const customerOptions = useMemo(() => {
-    return Array.from(new Set(rows.map((r) => r.company))).sort();
-  }, [rows]);
 
   const filteredRows = useMemo(() => {
     return rows.filter((r) => {
@@ -107,39 +78,6 @@ function AdminChatbotDetailChannelsTab() {
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-1 gap-2 md:grid-cols-2 lg:grid-cols-4 rounded-md border bg-white p-3 md:p-4">
-        <select
-          value={customer}
-          onChange={(e) => setCustomer(e.target.value)}
-          className="w-full rounded-md border bg-background px-4 py-2.5 text-sm"
-        >
-          <option value="All">All Customers</option>
-          {customerOptions.map((name) => (
-            <option key={name} value={name}>{name}</option>
-          ))}
-        </select>
-
-        <select
-          value={type}
-          onChange={(e) => setType(e.target.value as any)}
-          className="w-full rounded-md border bg-background px-4 py-2.5 text-sm"
-        >
-          <option value="All">All Types</option>
-          {PLATFORM_OPTIONS.map((p) => (
-            <option key={p} value={p}>{p}</option>
-          ))}
-        </select>
-
-        <select
-          value={status}
-          onChange={(e) => setStatus(e.target.value as any)}
-          className="w-full rounded-md border bg-background px-4 py-2.5 text-sm"
-        >
-          <option value="All">All Status</option>
-          <option value="Active">Active</option>
-          <option value="Inactive">Inactive</option>
-        </select>
-      </div>
       <div className="overflow-x-auto rounded-md border">
         <table className="min-w-full text-sm">
           <thead className="bg-muted/50">

@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 import { cn } from "@/lib/utils";
 import { faker } from "@faker-js/faker";
-import { Pencil, Pause, Play, Trash2, RotateCcw } from "lucide-react";
+import { Pencil, Pause, Play, Trash2 } from "lucide-react";
 import { Pagination } from "@/components/ui/pagination";
 import { ConfirmationDialog } from "@/components/ui/confirmation-dialog";
 
@@ -35,10 +35,14 @@ const sampleKnowledges: Knowledge[] = (() => {
   return rows;
 })();
 
-function AdminChatbotDetailKnowledgesTab() {
-  const [keyword, setKeyword] = useState("");
-  const [status, setStatus] = useState<"All" | "Active" | "Inactive">("All");
-  const [page, setPage] = useState(1);
+type Props = {
+  keyword: string;
+  status: "All" | "Active" | "Inactive";
+  page: number;
+  onPageChange: (page: number) => void;
+};
+
+function AdminChatbotDetailKnowledgesTab({ keyword, status, page, onPageChange }: Props) {
   const pageSize = 10;
 
   const [confirmDialog, setConfirmDialog] = useState<{
@@ -63,12 +67,6 @@ function AdminChatbotDetailKnowledgesTab() {
   const currentPage = Math.min(page, totalPages);
   const paged = filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize);
 
-  const resetFilters = () => {
-    setKeyword("");
-    setStatus("All");
-    setPage(1);
-  };
-
   const handleActionClick = (action: "pause" | "resume" | "delete", knowledge: Knowledge) => {
     setConfirmDialog({
       isOpen: true,
@@ -85,41 +83,6 @@ function AdminChatbotDetailKnowledgesTab() {
 
   return (
     <div className="space-y-4">
-      {/* Filters */}
-      <div className="grid grid-cols-1 gap-2 md:grid-cols-2 lg:grid-cols-4 rounded-md border bg-white p-3 md:p-4">
-        <input
-          type="text"
-          value={keyword}
-          onChange={(e) => {
-            setPage(1);
-            setKeyword(e.target.value);
-          }}
-          placeholder="Keyword (title)..."
-          className="w-full rounded-md border bg-background px-4 py-2.5 text-sm"
-        />
-        <select
-          value={status}
-          onChange={(e) => {
-            setPage(1);
-            setStatus(e.target.value as any);
-          }}
-          className="w-full rounded-md border bg-background px-4 py-2.5 text-sm"
-        >
-          <option value="All">All Status</option>
-          <option value="Active">Active</option>
-          <option value="Inactive">Inactive</option>
-        </select>
-        <div className="flex md:col-span-2 lg:col-span-2">
-          <button
-            onClick={resetFilters}
-            className="inline-flex w-full md:w-auto items-center justify-center gap-2 rounded-md border px-4 py-2.5 text-sm"
-          >
-            <RotateCcw className="h-4 w-4" />
-            Reset
-          </button>
-        </div>
-      </div>
-
       {/* Table */}
       <div className="overflow-x-auto rounded-md border">
         <table className="min-w-full text-sm">
@@ -211,7 +174,8 @@ function AdminChatbotDetailKnowledgesTab() {
         <Pagination
           currentPage={currentPage}
           totalPages={totalPages}
-          onPageChange={(p) => setPage(p)}
+          onPageChange={(p) => onPageChange(p)
+          }
           siblingCount={1}
         />
       </div>
