@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 import { faker } from "@faker-js/faker";
 import { Pencil, Pause, Play, Trash2, Plus } from "lucide-react";
 import { Pagination } from "@/components/ui/pagination";
+import { ConfirmationDialog } from "@/components/ui/confirmation-dialog";
 
 type Chatbot = {
   id: string;
@@ -67,6 +68,17 @@ function AdminChatbots() {
   const [status, setStatus] = useState<"All" | "Active" | "Inactive">("All");
   const [page, setPage] = useState(1);
   const pageSize = 10;
+  
+  // Confirmation dialog states
+  const [confirmDialog, setConfirmDialog] = useState<{
+    isOpen: boolean;
+    action: "pause" | "resume" | "delete";
+    chatbot: Chatbot | null;
+  }>({
+    isOpen: false,
+    action: "pause",
+    chatbot: null,
+  });
 
   const filtered = useMemo(() => {
     return sampleChatbots.filter((b) => {
@@ -86,6 +98,24 @@ function AdminChatbots() {
     setPlatform("All");
     setStatus("All");
     setPage(1);
+  };
+
+  const handleActionClick = (action: "pause" | "resume" | "delete", chatbot: Chatbot) => {
+    setConfirmDialog({
+      isOpen: true,
+      action,
+      chatbot,
+    });
+  };
+
+  const handleConfirmAction = () => {
+    if (!confirmDialog.chatbot) return;
+    
+    // Here you would typically make an API call
+    console.log(`${confirmDialog.action} chatbot:`, confirmDialog.chatbot);
+    
+    // For demo purposes, we'll just log the action
+    // In a real app, you'd update the chatbot status or delete the chatbot
   };
 
   return (
@@ -227,6 +257,7 @@ function AdminChatbots() {
                       </button>
                       {b.status === "Active" ? (
                         <button
+                          onClick={() => handleActionClick("pause", b)}
                           className="border-l p-2.5 hover:bg-muted"
                           aria-label="Pause"
                           title="Pause"
@@ -235,6 +266,7 @@ function AdminChatbots() {
                         </button>
                       ) : (
                         <button
+                          onClick={() => handleActionClick("resume", b)}
                           className="border-l p-2.5 hover:bg-muted"
                           aria-label="Resume"
                           title="Resume"
@@ -243,6 +275,7 @@ function AdminChatbots() {
                         </button>
                       )}
                       <button
+                        onClick={() => handleActionClick("delete", b)}
                         className="border-l p-2.5 text-red-600 hover:bg-muted"
                         aria-label="Delete"
                         title="Delete"
@@ -270,6 +303,18 @@ function AdminChatbots() {
           siblingCount={1}
         />
       </div>
+
+      {/* Confirmation Dialog */}
+      <ConfirmationDialog
+        isOpen={confirmDialog.isOpen}
+        onClose={() => setConfirmDialog(prev => ({ ...prev, isOpen: false }))}
+        onConfirm={handleConfirmAction}
+        title="Confirm Action"
+        message={`Are you sure to ${confirmDialog.action} ${confirmDialog.chatbot?.title}?`}
+        confirmText="OK"
+        cancelText="Cancel"
+        variant={confirmDialog.action === "delete" ? "destructive" : "default"}
+      />
     </div>
   );
 }
