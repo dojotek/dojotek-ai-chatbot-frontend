@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 import { faker } from "@faker-js/faker";
 import { Pencil, Pause, Play, Trash2, Plus } from "lucide-react";
 import { Pagination } from "@/components/ui/pagination";
+import { ConfirmationDialog } from "@/components/ui/confirmation-dialog";
 
 type ChannelPlatform =
   | "Slack"
@@ -74,6 +75,17 @@ function AdminChannels() {
   const [channel, setChannel] = useState<"All" | ChannelPlatform>("All");
   const [page, setPage] = useState(1);
   const pageSize = 10;
+  
+  // Confirmation dialog states
+  const [confirmDialog, setConfirmDialog] = useState<{
+    isOpen: boolean;
+    action: "pause" | "resume" | "delete";
+    channel: ChannelRow | null;
+  }>({
+    isOpen: false,
+    action: "pause",
+    channel: null,
+  });
 
   const chatbotOptions = useMemo(() => {
     return Array.from(new Set(sampleChannels.map((r) => r.chatbotTitle))).sort();
@@ -95,6 +107,24 @@ function AdminChannels() {
     setChatbot("All");
     setChannel("All");
     setPage(1);
+  };
+
+  const handleActionClick = (action: "pause" | "resume" | "delete", channel: ChannelRow) => {
+    setConfirmDialog({
+      isOpen: true,
+      action,
+      channel,
+    });
+  };
+
+  const handleConfirmAction = () => {
+    if (!confirmDialog.channel) return;
+    
+    // Here you would typically make an API call
+    console.log(`${confirmDialog.action} channel:`, confirmDialog.channel);
+    
+    // For demo purposes, we'll just log the action
+    // In a real app, you'd update the channel status or delete the channel
   };
 
   return (
@@ -215,6 +245,7 @@ function AdminChannels() {
                       </button>
                       {r.status === "Active" ? (
                         <button
+                          onClick={() => handleActionClick("pause", r)}
                           className="border-l p-2.5 hover:bg-muted"
                           aria-label="Pause"
                           title="Pause"
@@ -223,6 +254,7 @@ function AdminChannels() {
                         </button>
                       ) : (
                         <button
+                          onClick={() => handleActionClick("resume", r)}
                           className="border-l p-2.5 hover:bg-muted"
                           aria-label="Resume"
                           title="Resume"
@@ -231,6 +263,7 @@ function AdminChannels() {
                         </button>
                       )}
                       <button
+                        onClick={() => handleActionClick("delete", r)}
                         className="border-l p-2.5 text-red-600 hover:bg-muted"
                         aria-label="Delete"
                         title="Delete"
@@ -258,6 +291,18 @@ function AdminChannels() {
           siblingCount={1}
         />
       </div>
+
+      {/* Confirmation Dialog */}
+      <ConfirmationDialog
+        isOpen={confirmDialog.isOpen}
+        onClose={() => setConfirmDialog(prev => ({ ...prev, isOpen: false }))}
+        onConfirm={handleConfirmAction}
+        title="Confirm Action"
+        message={`Are you sure to ${confirmDialog.action} ${confirmDialog.channel?.chatbotTitle} channel?`}
+        confirmText="OK"
+        cancelText="Cancel"
+        variant={confirmDialog.action === "delete" ? "destructive" : "default"}
+      />
     </div>
   );
 }
