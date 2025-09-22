@@ -3,29 +3,19 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { cn } from "@/lib/utils";
-import { faker } from "@faker-js/faker";
 import { Pencil, Pause, Play, Trash2, RotateCcw, Plus } from "lucide-react";
 import { Pagination } from "@/components/ui/pagination";
 import { ConfirmationDialog } from "@/components/ui/confirmation-dialog";
+import { useCustomersControllerFindAll, useCustomersControllerRemove, useCustomersControllerUpdate, getCustomersControllerFindAllQueryKey } from "@/sdk/customers/customers";
+import type { Customer as ApiCustomer } from "@/sdk/models/customer";
+import { useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 
-type Customer = {
+type UiCustomer = {
   id: string;
   name: string;
   status: "Active" | "Inactive";
 };
-
-const sampleCustomers: Customer[] = (() => {
-  const rows: Customer[] = [];
-  for (let i = 0; i < 200; i++) {
-    const isActive = faker.number.int({ min: 0, max: 100 }) < 70; // ~70% Active
-    rows.push({
-      id: faker.string.uuid(),
-      name: faker.company.name(),
-      status: isActive ? "Active" : "Inactive",
-    });
-  }
-  return rows;
-})();
 
 function AdminCustomers() {
   const [keyword, setKeyword] = useState("");
@@ -37,24 +27,91 @@ function AdminCustomers() {
   const [confirmDialog, setConfirmDialog] = useState<{
     isOpen: boolean;
     action: "pause" | "resume" | "delete";
-    customer: Customer | null;
+    customer: UiCustomer | null;
   }>({
     isOpen: false,
     action: "pause",
     customer: null,
   });
 
-  const filtered = useMemo(() => {
-    return sampleCustomers.filter((c) => {
-      const matchKeyword = c.name.toLowerCase().includes(keyword.toLowerCase());
-      const matchStatus = status === "All" ? true : c.status === status;
-      return matchKeyword && matchStatus;
-    });
-  }, [keyword, status]);
+  const queryClient = useQueryClient();
 
-  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
-  const currentPage = Math.min(page, totalPages);
-  const paged = filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+  const apiIsActive = useMemo(() => {
+    if (status === "All") return "";
+    return status === "Active" ? "true" : "false";
+  }, [status]);
+
+  const skip = useMemo(() => Math.max(0, (page - 1) * pageSize), [page, pageSize]);
+  const take = pageSize;
+
+  const { data, isLoading, isError, refetch, isFetching } = useCustomersControllerFindAll(
+    {
+      skip,
+      take,
+      search: keyword,
+      industry: "",
+      isActive: apiIsActive,
+    },
+    {
+      query: {},
+    }
+  );
+
+  const updateMutation = useCustomersControllerUpdate({
+    mutation: {
+      onSuccess: async () => {
+        toast.success("Customer status updated", { duration: 2000 });
+        await queryClient.invalidateQueries({ queryKey: getCustomersControllerFindAllQueryKey({
+          skip,
+          take,
+          search: keyword,
+          industry: "",
+          isActive: apiIsActive,
+        }) as unknown as any });
+        // As a fallback, refetch the current query
+        refetch();
+        setConfirmDialog(prev => ({ ...prev, isOpen: false }));
+      },
+      onError: (err) => {
+        const message = (err as any)?.response?.data?.message || "Failed to update customer";
+        toast.error(message, { duration: 3000 });
+      },
+    },
+  });
+
+  const deleteMutation = useCustomersControllerRemove({
+    mutation: {
+      onSuccess: async () => {
+        toast.success("Customer deleted", { duration: 2000 });
+        await queryClient.invalidateQueries({ queryKey: getCustomersControllerFindAllQueryKey({
+          skip,
+          take,
+          search: keyword,
+          industry: "",
+          isActive: apiIsActive,
+        }) as unknown as any });
+        refetch();
+        setConfirmDialog(prev => ({ ...prev, isOpen: false }));
+      },
+      onError: (err) => {
+        const message = (err as any)?.response?.data?.message || "Failed to delete customer";
+        toast.error(message, { duration: 3000 });
+      },
+    },
+  });
+
+  const apiCustomers: UiCustomer[] = useMemo(() => {
+    const rows = (data?.data ?? []) as ApiCustomer[];
+    return rows.map((row) => ({
+      id: row.id,
+      name: row.name,
+      status: row.isActive ? "Active" : "Inactive",
+    }));
+  }, [data]);
+
+  const currentPage = page;
+  const hasNextPage = apiCustomers.length === pageSize;
+  const totalPages = Math.max(1, currentPage + (hasNextPage ? 1 : 0));
 
   const resetFilters = () => {
     setKeyword("");
@@ -62,7 +119,7 @@ function AdminCustomers() {
     setPage(1);
   };
 
-  const handleActionClick = (action: "pause" | "resume" | "delete", customer: Customer) => {
+  const handleActionClick = (action: "pause" | "resume" | "delete", customer: UiCustomer) => {
     setConfirmDialog({
       isOpen: true,
       action,
@@ -73,11 +130,13 @@ function AdminCustomers() {
   const handleConfirmAction = () => {
     if (!confirmDialog.customer) return;
     
-    // Here you would typically make an API call
-    console.log(`${confirmDialog.action} customer:`, confirmDialog.customer);
-    
-    // For demo purposes, we'll just log the action
-    // In a real app, you'd update the customer status or delete the customer
+    if (confirmDialog.action === "delete") {
+      deleteMutation.mutate({ id: confirmDialog.customer.id });
+      return;
+    }
+
+    const shouldActivate = confirmDialog.action === "resume";
+    updateMutation.mutate({ id: confirmDialog.customer.id, data: { isActive: shouldActivate } });
   };
 
   return (
@@ -145,7 +204,12 @@ function AdminCustomers() {
 
       {/* Table */}
       <div className="overflow-x-auto rounded-md border">
-        <table className="min-w-full text-sm">
+        {isLoading || isFetching ? (
+          <div className="p-6 text-sm text-muted-foreground">Loading customers…</div>
+        ) : isError ? (
+          <div className="p-6 text-sm text-red-600">Failed to load customers.</div>
+        ) : (
+          <table className="min-w-full text-sm">
           <thead className="bg-muted/50">
             <tr>
               <th className="px-3 py-3 text-left font-medium">NO</th>
@@ -155,14 +219,14 @@ function AdminCustomers() {
             </tr>
           </thead>
           <tbody>
-            {paged.length === 0 ? (
+            {apiCustomers.length === 0 ? (
               <tr>
                 <td colSpan={4} className="px-3 py-8 text-center text-muted-foreground">
                   No data
                 </td>
               </tr>
             ) : (
-              paged.map((c, idx) => (
+              apiCustomers.map((c, idx) => (
                 <tr key={c.id} className="border-t">
                   <td className="px-3 py-3">{(currentPage - 1) * pageSize + idx + 1}</td>
                   <td className="px-3 py-3">{c.name}</td>
@@ -220,12 +284,13 @@ function AdminCustomers() {
             )}
           </tbody>
         </table>
+        )}
       </div>
 
       {/* Pagination */}
       <div className="flex items-center justify-between gap-2">
         <p className="text-sm text-muted-foreground">
-          Page {currentPage} of {totalPages} • {filtered.length} items
+          Page {currentPage} of {totalPages} • {apiCustomers.length} items
         </p>
         <Pagination
           currentPage={currentPage}
@@ -242,7 +307,7 @@ function AdminCustomers() {
         onConfirm={handleConfirmAction}
         title="Confirm Action"
         message={`Are you sure to ${confirmDialog.action} ${confirmDialog.customer?.name}?`}
-        confirmText="OK"
+        confirmText={updateMutation.isPending || deleteMutation.isPending ? "Working..." : "OK"}
         cancelText="Cancel"
         variant={confirmDialog.action === "delete" ? "destructive" : "default"}
       />
