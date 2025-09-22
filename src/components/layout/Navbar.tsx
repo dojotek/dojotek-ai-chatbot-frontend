@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { Menu, Settings, Info, LogOut, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { clearAuthToken } from "@/lib/auth";
+import { useRouter } from "next/navigation";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -17,6 +19,12 @@ interface NavbarProps {
 }
 
 export function Navbar({ onMenuClick }: NavbarProps) {
+  const router = useRouter();
+
+  const handleSignOut = () => {
+    clearAuthToken();
+    router.push("/sign-in");
+  };
   return (
     <header className="sticky top-0 z-40 flex h-16 items-center justify-between border-b border-border bg-white px-4 lg:px-6">
       {/* Left side - Menu button and Logo */}
@@ -63,11 +71,9 @@ export function Navbar({ onMenuClick }: NavbarProps) {
               </Link>
             </DropdownMenuItem>
             <DropdownMenuSeparator />
-            <DropdownMenuItem asChild>
-              <Link href="/sign-in" className="flex items-center text-destructive">
-                <LogOut className="mr-2 h-4 w-4" />
-                Sign Out
-              </Link>
+            <DropdownMenuItem onClick={handleSignOut} className="text-destructive">
+              <LogOut className="mr-2 h-4 w-4" />
+              Sign Out
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>

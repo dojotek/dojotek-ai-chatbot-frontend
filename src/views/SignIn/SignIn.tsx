@@ -2,6 +2,9 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useAuthControllerSignIn } from "@/sdk/authentication/authentication";
+import { setAuthToken } from "@/lib/auth";
+import { toast } from "sonner";
 
 function SignIn() {
   const router = useRouter();
@@ -22,17 +25,30 @@ function SignIn() {
   const isPasswordValid = password.length > 0;
   const canSubmit = isValidEmail && isPasswordValid;
 
+  const signInMutation = useAuthControllerSignIn({});
+
   const onSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setTouchedEmail(true);
     setTouchedPassword(true);
     if (!canSubmit) return;
-    // Placeholder submit. Wire up to real auth later.
-     
-    console.log({ email, passwordMasked: "••••••••", remember });
-    
-    // Redirect to admin dashboard after successful sign in
-    router.push("/admin/dashboards");
+    signInMutation.mutate(
+      { data: { email, password } as any },
+      {
+        onSuccess: (resp) => {
+          const token = resp?.data?.access_token;
+          if (token) setAuthToken(token);
+          toast.success("Sign in success", { duration: 2500 });
+          const url = new URL(window.location.href);
+          const redirectTo = url.searchParams.get("redirect") || "/admin/dashboards";
+          router.push(redirectTo);
+        },
+        onError: (error: any) => {
+          const message = error?.response?.data?.message || "Email or password is incorrect";
+          toast.error(message, { duration: 3000 });
+        },
+      }
+    );
   };
 
   return (
@@ -123,10 +139,10 @@ function SignIn() {
 
               <button
                 type="submit"
-                disabled={!canSubmit}
+                disabled={!canSubmit || signInMutation.isPending}
                 className="w-full rounded-md bg-foreground border border-foreground px-4 py-2.5 text-sm font-medium text-background hover:bg-foreground/90 hover:border-foreground/90 transition-colors disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:bg-foreground disabled:hover:border-foreground"
               >
-                Sign In
+                {signInMutation.isPending ? "Signing In..." : "Sign In"}
               </button>
             </form>
           </div>
