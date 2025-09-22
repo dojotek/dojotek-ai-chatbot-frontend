@@ -5,7 +5,6 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { ArrowLeft, Save } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -13,6 +12,11 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select } from "@/components/ui/select";
 import { Collapsible } from "@/components/ui/collapsible";
+import { useParams, useRouter } from "next/navigation";
+import { useCustomersControllerCreate, useCustomersControllerFindOne, useCustomersControllerUpdate } from "@/sdk/customers/customers";
+import { useEffect } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 
 // Form validation schema
 const customerSchema = z.object({
@@ -25,13 +29,19 @@ type CustomerFormData = z.infer<typeof customerSchema>;
 
 function AdminCustomer() {
   const [isSubmitting, setIsSubmitting] = useState(false);
+  
+  const params = useParams<{ id?: string }>();
+  const customerId = params?.id as string | undefined;
+  const isEditMode = Boolean(customerId);
   const router = useRouter();
+  const queryClient = useQueryClient();
 
   const {
     register,
     handleSubmit,
-    formState: { errors },
+    formState: { errors, isDirty, isValid },
     reset,
+    watch,
   } = useForm<CustomerFormData>({
     resolver: zodResolver(customerSchema),
     defaultValues: {
@@ -39,19 +49,69 @@ function AdminCustomer() {
       status: "Active",
       note: "",
     },
+    mode: "onChange",
+  });
+
+  const { data: getOneResp } = useCustomersControllerFindOne(customerId ?? "", {
+    query: {
+      enabled: isEditMode,
+    },
+  });
+
+  useEffect(() => {
+    const customer = getOneResp?.data;
+    if (!customer) return;
+    reset({
+      name: customer.name ?? "",
+      status: customer.isActive ? "Active" : "Inactive",
+      note: (customer as any).description ?? "",
+    });
+  }, [getOneResp, reset]);
+
+  const createMutation = useCustomersControllerCreate({
+    mutation: {
+      onSuccess: async (resp) => {
+        toast.success("Customer created", { duration: 2500 });
+        await queryClient.invalidateQueries({ predicate: (q) => Array.isArray(q.queryKey) && String(q.queryKey[0]).includes("/customers") });
+        const newId = resp.data.id;
+        if (newId) {
+          router.replace(`/admin/customers/edit/${newId}`);
+        }
+      },
+      onError: (err) => {
+        const message = (err as any)?.response?.data?.message || "Failed to create customer";
+        toast.error(message, { duration: 3000 });
+      },
+    },
+  });
+
+  const updateMutation = useCustomersControllerUpdate({
+    mutation: {
+      onSuccess: async () => {
+        toast.success("Customer updated", { duration: 2500 });
+        await queryClient.invalidateQueries({ predicate: (q) => Array.isArray(q.queryKey) && String(q.queryKey[0]).includes("/customers") });
+      },
+      onError: (err) => {
+        const message = (err as any)?.response?.data?.message || "Failed to update customer";
+        toast.error(message, { duration: 3000 });
+      },
+    },
   });
 
   const onSubmit = async (data: CustomerFormData) => {
     setIsSubmitting(true);
     try {
-      // Simulate API call
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-      console.log("Form submitted:", data);
-      // Navigate back to customers list after successful save
-      router.push("/admin/customers");
-    } catch (error) {
-      console.error("Error submitting form:", error);
-      // Handle error (e.g., show error toast)
+      const payload = {
+        name: data.name,
+        isActive: data.status === "Active",
+        description: data.note || undefined,
+      } as const;
+
+      if (isEditMode && customerId) {
+        updateMutation.mutate({ id: customerId, data: payload });
+      } else {
+        createMutation.mutate({ data: payload });
+      }
     } finally {
       setIsSubmitting(false);
     }
@@ -59,9 +119,10 @@ function AdminCustomer() {
 
   const handleCancel = () => {
     reset();
-    // Navigate back to customers list
     router.push("/admin/customers");
   };
+
+  const isSaving = isSubmitting || createMutation.isPending || updateMutation.isPending;
 
   return (
     <div className="space-y-4 p-4 md:p-6">
@@ -88,7 +149,7 @@ function AdminCustomer() {
         >
           <ArrowLeft className="h-4 w-4" />
         </Link>
-        <h1 className="text-xl font-semibold md:text-2xl">Customer Details</h1>
+        <h1 className="text-xl font-semibold md:text-2xl">Customer Details {isEditMode ? "(Edit)" : "(Create)"}</h1>
       </div>
 
       {/* Form */}
@@ -160,11 +221,11 @@ function AdminCustomer() {
           <Button
             type="submit"
             variant="outline"
-            disabled={isSubmitting}
+            disabled={isSaving || !isValid || (!isEditMode && !isValid) || (isEditMode && !isDirty)}
             className="w-full md:w-auto px-8"
           >
             <Save className="mr-2 h-4 w-4" />
-            {isSubmitting ? "Saving..." : "Save"}
+            {isSaving ? "Saving..." : "Save"}
           </Button>
           <Button
             type="button"
@@ -176,6 +237,8 @@ function AdminCustomer() {
           </Button>
         </div>
       </form>
+
+      
     </div>
   );
 }
