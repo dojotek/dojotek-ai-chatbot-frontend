@@ -1,118 +1,187 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
-import { faker } from "@faker-js/faker";
 import { Trash2, Plus, Loader2, RotateCcw } from "lucide-react";
 import { Pagination } from "@/components/ui/pagination";
 import { ConfirmationDialog } from "@/components/ui/confirmation-dialog";
+import { useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
+import {
+  useSettingsControllerFindAll,
+  getSettingsControllerFindAllQueryKey,
+  useSettingsControllerUpdate,
+  useSettingsControllerCreate,
+  useSettingsControllerRemove,
+} from "@/sdk/settings/settings";
+import type { Setting as ApiSetting } from "@/sdk/models/setting";
 
-type SettingType = "General" | "Sensitive";
-type SettingStatus = "Active" | "Inactive";
-
-type SettingRow = {
+type UiSetting = {
   id: string;
   key: string;
-  type: SettingType;
   value: string;
-  status: SettingStatus;
+  description?: string;
+  category?: string;
 };
 
-const TYPE_OPTIONS: SettingType[] = ["General", "Sensitive"];
-const STATUS_OPTIONS: SettingStatus[] = ["Active", "Inactive"];
-
-const sampleSettings: SettingRow[] = (() => {
-  const rows: SettingRow[] = [];
-  for (let i = 0; i < 300; i++) {
-    const type = faker.helpers.arrayElement(TYPE_OPTIONS);
-    const key = faker.helpers
-      .slugify(`${faker.hacker.noun()}_${faker.hacker.verb()}_${faker.number.int({ min: 1, max: 999 })}`)
-      .replace(/-/g, "_")
-      .toLowerCase();
-    rows.push({
-      id: faker.string.uuid(),
-      key,
-      type,
-      value: faker.lorem.sentence({ min: 3, max: 8 }),
-      status: faker.number.int({ min: 0, max: 100 }) < 80 ? "Active" : "Inactive",
-    });
-  }
-  return rows;
-})();
+const CATEGORY_OPTIONS: string[] = ["General", "Sensitive", "System", "Integration"];
 
 function AdminSystemSettings() {
   const [keyword, setKeyword] = useState("");
-  const [type, setType] = useState<"All" | SettingType>("All");
-  const [status, setStatus] = useState<"All" | SettingStatus>("All");
+  const [category, setCategory] = useState<string>("");
   const [page, setPage] = useState(1);
   const pageSize = 10;
 
-  // Editable rows state
-  const [rows, setRows] = useState<SettingRow[]>(sampleSettings);
+  const queryClient = useQueryClient();
 
-  // Saving states for inline feedback
-  const [savingTypeId, setSavingTypeId] = useState<string | null>(null);
-  const [savingValueId, setSavingValueId] = useState<string | null>(null);
+  const skip = useMemo(() => Math.max(0, (page - 1) * pageSize), [page, pageSize]);
+  const take = pageSize;
 
-  // Simple toast state
-  const [toastVisible, setToastVisible] = useState(false);
+  const { data, isLoading, isError, refetch, isFetching } = useSettingsControllerFindAll(
+    { skip, take, search: keyword, category },
+    { query: {} }
+  );
+
+  const updateMutation = useSettingsControllerUpdate({
+    mutation: {
+      onSuccess: async () => {
+        toast.success("Setting saved", { duration: 1500 });
+        setPendingSnackbar(false);
+        await queryClient.invalidateQueries({
+          queryKey: getSettingsControllerFindAllQueryKey({ skip, take, search: keyword, category }) as unknown as any,
+        });
+      },
+      onError: (err) => {
+        const message = (err as any)?.response?.data?.message || "Failed to save setting";
+        toast.error(message, { duration: 3000 });
+      },
+    },
+  });
+
+  const createMutation = useSettingsControllerCreate({
+    mutation: {
+      onSuccess: async () => {
+        toast.success("Setting created", { duration: 2000 });
+        await queryClient.invalidateQueries({
+          queryKey: getSettingsControllerFindAllQueryKey({ skip, take, search: keyword, category }) as unknown as any,
+        });
+        setCreateOpen(false);
+        setCreateForm({ key: "", value: "", description: "", category: "" });
+      },
+      onError: (err) => {
+        const message = (err as any)?.response?.data?.message || "Failed to create setting";
+        toast.error(message, { duration: 3000 });
+      },
+    },
+  });
+
+  const deleteMutation = useSettingsControllerRemove({
+    mutation: {
+      onSuccess: async () => {
+        toast.success("Setting deleted", { duration: 2000 });
+        await queryClient.invalidateQueries({
+          queryKey: getSettingsControllerFindAllQueryKey({ skip, take, search: keyword, category }) as unknown as any,
+        });
+        refetch();
+        setConfirmDialog((prev) => ({ ...prev, isOpen: false }));
+      },
+      onError: (err) => {
+        const message = (err as any)?.response?.data?.message || "Failed to delete setting";
+        toast.error(message, { duration: 3000 });
+      },
+    },
+  });
+
+  const apiRows: UiSetting[] = useMemo(() => {
+    const rows = (data?.data ?? []) as ApiSetting[];
+    return rows.map((r) => ({ id: r.id, key: r.key, value: r.value, description: r.description as any, category: r.category as any }));
+  }, [data]);
+
+  // Local editable rows state synchronized with API rows
+  const [rows, setRows] = useState<UiSetting[]>([]);
+  const originalRowsRef = useRef<Record<string, UiSetting>>({});
+  useEffect(() => {
+    setRows(apiRows);
+    const next: Record<string, UiSetting> = {};
+    apiRows.forEach((r) => (next[r.id] = { ...r }));
+    originalRowsRef.current = next;
+    setDirtyIds(new Set());
+  }, [apiRows]);
+
+  const currentPage = page;
+  const hasNextPage = apiRows.length === pageSize;
+  const totalPages = Math.max(1, currentPage + (hasNextPage ? 1 : 0));
+
+  const resetFilters = () => {
+    setKeyword("");
+    setCategory("");
+    setPage(1);
+  };
+
+  // Pending changes snackbar state
+  const [dirtyIds, setDirtyIds] = useState<Set<string>>(new Set());
+  const [pendingSnackbar, setPendingSnackbar] = useState(false);
+  useEffect(() => {
+    setPendingSnackbar(dirtyIds.size > 0);
+  }, [dirtyIds]);
   
   // Confirmation dialog states
   const [confirmDialog, setConfirmDialog] = useState<{
     isOpen: boolean;
     action: "delete";
-    setting: SettingRow | null;
+    setting: UiSetting | null;
   }>({
     isOpen: false,
     action: "delete",
     setting: null,
   });
 
-  const showToast = () => {
-    setToastVisible(true);
-    window.setTimeout(() => setToastVisible(false), 1400);
-  };
-
-  const handleActionClick = (action: "delete", setting: SettingRow) => {
-    setConfirmDialog({
-      isOpen: true,
-      action,
-      setting,
-    });
+  const handleActionClick = (action: "delete", setting: UiSetting) => {
+    setConfirmDialog({ isOpen: true, action, setting });
   };
 
   const handleConfirmAction = () => {
     if (!confirmDialog.setting) return;
-    
-    // Here you would typically make an API call
-    console.log(`${confirmDialog.action} setting:`, confirmDialog.setting);
-    
-    // For demo purposes, we'll just log the action
-    // In a real app, you'd delete the setting
+    if (confirmDialog.action === "delete") {
+      deleteMutation.mutate({ id: confirmDialog.setting.id });
+    }
   };
 
-  const filtered = useMemo(() => {
-    return rows.filter((s) => {
-      const matchKeyword =
-        keyword.trim() === ""
-          ? true
-          : s.key.toLowerCase().includes(keyword.toLowerCase());
-      const matchType = type === "All" ? true : s.type === type;
-      const matchStatus = status === "All" ? true : s.status === status;
-      return matchKeyword && matchType && matchStatus;
+  // Create modal state
+  const [createOpen, setCreateOpen] = useState(false);
+  const [createForm, setCreateForm] = useState<{ key: string; value: string; description?: string; category?: string }>(
+    { key: "", value: "", description: "", category: "" }
+  );
+  const createValid = createForm.key.trim() !== "" && createForm.value.trim() !== "";
+
+  const handleInlineChange = (id: string, field: keyof UiSetting, value: string) => {
+    setRows((prev) => prev.map((r) => (r.id === id ? { ...r, [field]: value } as UiSetting : r)));
+    setDirtyIds((prev) => new Set(prev).add(id));
+  };
+
+  const handleInlineBlurSave = (row: UiSetting) => {
+    const original = originalRowsRef.current[row.id];
+    if (!original) return;
+    const payload: Record<string, string> = {};
+    if (row.value !== original.value) payload.value = row.value;
+    if ((row.description || "") !== (original.description || "")) payload.description = row.description || "";
+    if ((row.category || "") !== (original.category || "")) payload.category = row.category || "";
+    if (Object.keys(payload).length === 0) {
+      setDirtyIds((prev) => {
+        const next = new Set(prev);
+        next.delete(row.id);
+        return next;
+      });
+      return;
+    }
+    updateMutation.mutate({ id: row.id, data: payload as any });
+    // On success, original will be updated by refetch; clear dirty now optimistically
+    setDirtyIds((prev) => {
+      const next = new Set(prev);
+      next.delete(row.id);
+      return next;
     });
-  }, [rows, keyword, type, status]);
-
-  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
-  const currentPage = Math.min(page, totalPages);
-  const paged = filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize);
-
-  const resetFilters = () => {
-    setKeyword("");
-    setType("All");
-    setStatus("All");
-    setPage(1);
   };
 
   return (
@@ -131,8 +200,8 @@ function AdminSystemSettings() {
       {/* Title + Action */}
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-semibold md:text-2xl">System Settings</h1>
-        <Link
-          href="#"
+        <button
+          onClick={() => setCreateOpen(true)}
           className={
             cn(
               "inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground",
@@ -142,11 +211,11 @@ function AdminSystemSettings() {
         >
           <Plus className="h-4 w-4" />
           New Setting
-        </Link>
+        </button>
       </div>
 
       {/* Filters */}
-      <div className="grid grid-cols-1 gap-2 md:grid-cols-2 lg:grid-cols-5 rounded-md border bg-white p-3 md:p-4">
+      <div className="grid grid-cols-1 gap-2 md:grid-cols-2 lg:grid-cols-4 rounded-md border bg-white p-3 md:p-4">
         <input
           type="text"
           value={keyword}
@@ -158,29 +227,16 @@ function AdminSystemSettings() {
           className="w-full rounded-md border bg-background px-4 py-2.5 text-sm"
         />
         <select
-          value={type}
+          value={category}
           onChange={(e) => {
             setPage(1);
-            setType(e.target.value as any);
+            setCategory(e.target.value);
           }}
           className="w-full rounded-md border bg-background px-4 py-2.5 text-sm"
         >
-          <option value="All">All Types</option>
-          {TYPE_OPTIONS.map((t) => (
+          <option value="">All Categories</option>
+          {CATEGORY_OPTIONS.map((t) => (
             <option key={t} value={t}>{t}</option>
-          ))}
-        </select>
-        <select
-          value={status}
-          onChange={(e) => {
-            setPage(1);
-            setStatus(e.target.value as any);
-          }}
-          className="w-full rounded-md border bg-background px-4 py-2.5 text-sm"
-        >
-          <option value="All">All Status</option>
-          {STATUS_OPTIONS.map((s) => (
-            <option key={s} value={s}>{s}</option>
           ))}
         </select>
         <div className="flex md:col-span-2 lg:col-span-1">
@@ -196,50 +252,48 @@ function AdminSystemSettings() {
 
       {/* Table */}
       <div className="overflow-x-auto rounded-md border">
+        {isLoading || isFetching ? (
+          <div className="p-6 text-sm text-muted-foreground">Loading settings…</div>
+        ) : isError ? (
+          <div className="p-6 text-sm text-red-600">Failed to load settings.</div>
+        ) : (
         <table className="min-w-full text-sm">
           <thead className="bg-muted/50">
             <tr>
               <th className="px-3 py-3 text-left font-medium">NO</th>
               <th className="px-3 py-3 text-left font-medium">KEY</th>
-              <th className="px-3 py-3 text-left font-medium">TYPE</th>
+                <th className="px-3 py-3 text-left font-medium">CATEGORY</th>
               <th className="px-3 py-3 text-left font-medium">VALUE</th>
-              <th className="px-3 py-3 text-left font-medium">STATUS</th>
+                <th className="px-3 py-3 text-left font-medium">DESCRIPTION</th>
               <th className="px-3 py-3 text-left font-medium">ACTION</th>
             </tr>
           </thead>
           <tbody>
-            {paged.length === 0 ? (
+              {rows.length === 0 ? (
               <tr>
                 <td colSpan={6} className="px-3 py-8 text-center text-muted-foreground">
                   No data
                 </td>
               </tr>
             ) : (
-              paged.map((s, idx) => (
+                rows.map((s, idx) => (
                 <tr key={s.id} className="border-t">
                   <td className="px-3 py-3">{(currentPage - 1) * pageSize + idx + 1}</td>
-                  <td className="px-3 py-3">{s.key}</td>
+                    <td className="px-3 py-3 whitespace-nowrap">{s.key}</td>
                   <td className="px-3 py-3">
                     <div className="flex items-center gap-2">
                       <select
-                        value={s.type}
-                        disabled={savingTypeId === s.id}
-                        onChange={(e) => {
-                          const newType = e.target.value as SettingType;
-                          setRows((prev) => prev.map((r) => (r.id === s.id ? { ...r, type: newType } : r)));
-                          setSavingTypeId(s.id);
-                          window.setTimeout(() => {
-                            setSavingTypeId(null);
-                            showToast();
-                          }, 800);
-                        }}
+                          value={s.category || ""}
+                          onChange={(e) => handleInlineChange(s.id, "category", e.target.value)}
+                          onBlur={() => handleInlineBlurSave(s)}
                         className="w-full rounded-md border bg-background px-2.5 py-1.5 text-sm"
                       >
-                        {TYPE_OPTIONS.map((t) => (
+                          <option value="">—</option>
+                          {CATEGORY_OPTIONS.map((t) => (
                           <option key={t} value={t}>{t}</option>
                         ))}
                       </select>
-                      {savingTypeId === s.id ? (
+                        {updateMutation.isPending ? (
                         <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
                       ) : null}
                     </div>
@@ -249,36 +303,28 @@ function AdminSystemSettings() {
                       <input
                         type="text"
                         value={s.value}
-                        disabled={savingValueId === s.id}
-                        onChange={(e) => {
-                          const newValue = e.target.value;
-                          setRows((prev) => prev.map((r) => (r.id === s.id ? { ...r, value: newValue } : r)));
-                        }}
-                        onBlur={() => {
-                          setSavingValueId(s.id);
-                          window.setTimeout(() => {
-                            setSavingValueId(null);
-                            showToast();
-                          }, 800);
-                        }}
+                          onChange={(e) => handleInlineChange(s.id, "value", e.target.value)}
+                          onBlur={() => handleInlineBlurSave(s)}
                         className="w-full rounded-md border bg-background px-2.5 py-1.5 text-sm"
                       />
-                      {savingValueId === s.id ? (
+                        {updateMutation.isPending ? (
                         <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
                       ) : null}
                     </div>
                   </td>
                   <td className="px-3 py-3">
-                    <span
-                      className={
-                        cn(
-                          "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium",
-                          s.status === "Active" ? "bg-emerald-100 text-emerald-700" : "bg-neutral-200 text-neutral-700"
-                        )
-                      }
-                    >
-                      {s.status}
-                    </span>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="text"
+                          value={s.description || ""}
+                          onChange={(e) => handleInlineChange(s.id, "description", e.target.value)}
+                          onBlur={() => handleInlineBlurSave(s)}
+                          className="w-full rounded-md border bg-background px-2.5 py-1.5 text-sm"
+                        />
+                        {updateMutation.isPending ? (
+                          <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                        ) : null}
+                      </div>
                   </td>
                   <td className="px-3 py-3">
                     <div className="inline-flex overflow-hidden rounded-md border">
@@ -297,12 +343,13 @@ function AdminSystemSettings() {
             )}
           </tbody>
         </table>
+        )}
       </div>
 
       {/* Pagination */}
       <div className="flex items-center justify-between gap-2">
         <p className="text-sm text-muted-foreground">
-          Page {currentPage} of {totalPages} • {filtered.length} items
+          Page {currentPage} of {totalPages} • {rows.length} items
         </p>
         <Pagination
           currentPage={currentPage}
@@ -312,10 +359,87 @@ function AdminSystemSettings() {
         />
       </div>
 
-      {/* Toast */}
-      {toastVisible ? (
-        <div className="fixed bottom-4 right-4 rounded-md border bg-white px-4 py-2 text-sm shadow-sm">
-          Setting Saved
+      {/* Pending changes snackbar */}
+      {pendingSnackbar ? (
+        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 rounded-md border bg-white px-4 py-2 text-sm shadow-sm">
+          You have pending changes… they will be saved on blur.
+        </div>
+      ) : null}
+
+      {/* Create Modal */}
+      {createOpen ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/40" onClick={() => setCreateOpen(false)} />
+          <div className="relative z-10 w-[92%] max-w-lg rounded-md border bg-white p-4 shadow-md">
+            <div className="mb-3 flex items-center justify-between">
+              <h2 className="text-base font-semibold">New Setting</h2>
+              <button onClick={() => setCreateOpen(false)} className="text-sm text-muted-foreground hover:underline">Close</button>
+            </div>
+            <div className="space-y-3">
+              <div>
+                <label className="mb-1 block text-xs text-muted-foreground">Key *</label>
+                <input
+                  type="text"
+                  value={createForm.key}
+                  onChange={(e) => setCreateForm((f) => ({ ...f, key: e.target.value }))}
+                  placeholder="e.g. app_name"
+                  className="w-full rounded-md border bg-background px-3 py-2 text-sm"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs text-muted-foreground">Value *</label>
+                <input
+                  type="text"
+                  value={createForm.value}
+                  onChange={(e) => setCreateForm((f) => ({ ...f, value: e.target.value }))}
+                  placeholder="e.g. Dojotek AI Chatbot"
+                  className="w-full rounded-md border bg-background px-3 py-2 text-sm"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs text-muted-foreground">Description</label>
+                <input
+                  type="text"
+                  value={createForm.description || ""}
+                  onChange={(e) => setCreateForm((f) => ({ ...f, description: e.target.value }))}
+                  placeholder="Optional"
+                  className="w-full rounded-md border bg-background px-3 py-2 text-sm"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs text-muted-foreground">Category</label>
+                <select
+                  value={createForm.category || ""}
+                  onChange={(e) => setCreateForm((f) => ({ ...f, category: e.target.value }))}
+                  className="w-full rounded-md border bg-background px-3 py-2 text-sm"
+                >
+                  <option value="">—</option>
+                  {CATEGORY_OPTIONS.map((t) => (
+                    <option key={t} value={t}>{t}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <div className="mt-4 flex items-center justify-end gap-2">
+              <button
+                onClick={() => setCreateOpen(false)}
+                className="inline-flex items-center justify-center rounded-md border px-4 py-2 text-sm"
+              >
+                Cancel
+              </button>
+              <button
+                disabled={!createValid || createMutation.isPending}
+                onClick={() => createMutation.mutate({ data: { ...createForm } as any })}
+                className={cn(
+                  "inline-flex items-center justify-center gap-2 rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground",
+                  "border border-primary disabled:opacity-50"
+                )}
+              >
+                {createMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                Save
+              </button>
+            </div>
+          </div>
         </div>
       ) : null}
 
@@ -326,7 +450,7 @@ function AdminSystemSettings() {
         onConfirm={handleConfirmAction}
         title="Confirm Action"
         message={`Are you sure to ${confirmDialog.action} ${confirmDialog.setting?.key}?`}
-        confirmText="OK"
+        confirmText={deleteMutation.isPending ? "Working..." : "OK"}
         cancelText="Cancel"
         variant={confirmDialog.action === "delete" ? "destructive" : "default"}
       />
