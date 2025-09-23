@@ -3,74 +3,76 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { cn } from "@/lib/utils";
-import { faker } from "@faker-js/faker";
-import { Pencil, Trash2, Pause, Play, Plus, RotateCcw } from "lucide-react";
+import { Pencil, Trash2, Plus, RotateCcw } from "lucide-react";
 import { Pagination } from "@/components/ui/pagination";
 import { ConfirmationDialog } from "@/components/ui/confirmation-dialog";
+import { useRolesControllerFindAll, useRolesControllerRemove, getRolesControllerFindAllQueryKey } from "@/sdk/roles/roles";
+import type { Role as ApiRole } from "@/sdk/models/role";
+import { useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 
-type RoleStatus = "Active" | "Inactive";
-
-type RoleRow = {
+type UiRole = {
   id: string;
-  name: "Super Admin" | "Admin" | "Operational";
-  usersCount: number;
-  status: RoleStatus;
+  name: string;
 };
-
-const ROLE_NAMES: RoleRow["name"][] = ["Super Admin", "Admin", "Operational"];
-
-const sampleRoles: RoleRow[] = (() => {
-  const rows: RoleRow[] = [];
-  for (let i = 0; i < ROLE_NAMES.length; i++) {
-    const status: RoleStatus = faker.number.int({ min: 0, max: 100 }) < 80 ? "Active" : "Inactive";
-    rows.push({
-      id: faker.string.uuid(),
-      name: ROLE_NAMES[i],
-      usersCount: faker.number.int({ min: 1, max: 20 }),
-      status,
-    });
-  }
-  return rows;
-})();
 
 function AdminRoles() {
   const [keyword, setKeyword] = useState("");
-  const [status, setStatus] = useState<"All" | RoleStatus>("All");
   const [page, setPage] = useState(1);
   const pageSize = 10;
 
   const [confirmDialog, setConfirmDialog] = useState<{
     isOpen: boolean;
-    action: "edit" | "pause" | "resume" | "delete";
-    role: RoleRow | null;
+    action: "edit" | "delete";
+    role: UiRole | null;
   }>({
     isOpen: false,
     action: "edit",
     role: null,
   });
 
-  const filtered = useMemo(() => {
-    return sampleRoles.filter((r) => {
-      const matchKeyword =
-        keyword.trim() === ""
-          ? true
-          : r.name.toLowerCase().includes(keyword.toLowerCase());
-      const matchStatus = status === "All" ? true : r.status === status;
-      return matchKeyword && matchStatus;
-    });
-  }, [keyword, status]);
+  const queryClient = useQueryClient();
 
-  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
-  const currentPage = Math.min(page, totalPages);
-  const paged = filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+  const skip = useMemo(() => Math.max(0, (page - 1) * pageSize), [page, pageSize]);
+  const take = pageSize;
+
+  const { data, isLoading, isError, refetch, isFetching } = useRolesControllerFindAll(
+    { skip, take, search: keyword },
+    { query: {} }
+  );
+
+  const deleteMutation = useRolesControllerRemove({
+    mutation: {
+      onSuccess: async () => {
+        toast.success("Role deleted", { duration: 2000 });
+        await queryClient.invalidateQueries({
+          queryKey: getRolesControllerFindAllQueryKey({ skip, take, search: keyword }) as unknown as any,
+        });
+        refetch();
+        setConfirmDialog((prev) => ({ ...prev, isOpen: false }));
+      },
+      onError: (err) => {
+        const message = (err as any)?.response?.data?.message || "Failed to delete role";
+        toast.error(message, { duration: 3000 });
+      },
+    },
+  });
+
+  const apiRoles: UiRole[] = useMemo(() => {
+    const rows = (data?.data ?? []) as ApiRole[];
+    return rows.map((row) => ({ id: row.id, name: row.name }));
+  }, [data]);
+
+  const currentPage = page;
+  const hasNextPage = apiRoles.length === pageSize;
+  const totalPages = Math.max(1, currentPage + (hasNextPage ? 1 : 0));
 
   const resetFilters = () => {
     setKeyword("");
-    setStatus("All");
     setPage(1);
   };
 
-  const handleActionClick = (action: "edit" | "pause" | "resume" | "delete", role: RoleRow) => {
+  const handleActionClick = (action: "edit" | "delete", role: UiRole) => {
     if (action === "edit") {
       // For edit we don't open confirmation dialog, we navigate via Link
       return;
@@ -80,8 +82,9 @@ function AdminRoles() {
 
   const handleConfirmAction = () => {
     if (!confirmDialog.role) return;
-    // Here you would typically make an API call based on action
-    console.log(`${confirmDialog.action} role:`, confirmDialog.role);
+    if (confirmDialog.action === "delete") {
+      deleteMutation.mutate({ id: confirmDialog.role.id });
+    }
   };
 
   return (
@@ -126,18 +129,6 @@ function AdminRoles() {
           placeholder="Keyword (role name)..."
           className="w-full rounded-md border bg-background px-4 py-2.5 text-sm"
         />
-        <select
-          value={status}
-          onChange={(e) => {
-            setPage(1);
-            setStatus(e.target.value as any);
-          }}
-          className="w-full rounded-md border bg-background px-4 py-2.5 text-sm"
-        >
-          <option value="All">All Status</option>
-          <option value="Active">Active</option>
-          <option value="Inactive">Inactive</option>
-        </select>
         <div className="flex md:col-span-2 lg:col-span-1">
           <button
             onClick={resetFilters}
@@ -151,91 +142,63 @@ function AdminRoles() {
 
       {/* Table */}
       <div className="overflow-x-auto rounded-md border">
-        <table className="min-w-full text-sm">
-          <thead className="bg-muted/50">
-            <tr>
-              <th className="px-3 py-3 text-left font-medium">NO</th>
-              <th className="px-3 py-3 text-left font-medium">NAME</th>
-              <th className="px-3 py-3 text-left font-medium">USERS</th>
-              <th className="px-3 py-3 text-left font-medium">STATUS</th>
-              <th className="px-3 py-3 text-left font-medium">ACTION</th>
-            </tr>
-          </thead>
-          <tbody>
-            {paged.length === 0 ? (
+        {isLoading || isFetching ? (
+          <div className="p-6 text-sm text-muted-foreground">Loading roles…</div>
+        ) : isError ? (
+          <div className="p-6 text-sm text-red-600">Failed to load roles.</div>
+        ) : (
+          <table className="min-w-full text-sm">
+            <thead className="bg-muted/50">
               <tr>
-                <td colSpan={5} className="px-3 py-8 text-center text-muted-foreground">
-                  No data
-                </td>
+                <th className="px-3 py-3 text-left font-medium">NO</th>
+                <th className="px-3 py-3 text-left font-medium">NAME</th>
+                <th className="px-3 py-3 text-left font-medium">ACTION</th>
               </tr>
-            ) : (
-              paged.map((r, idx) => (
-                <tr key={r.id} className="border-t">
-                  <td className="px-3 py-3">{(currentPage - 1) * pageSize + idx + 1}</td>
-                  <td className="px-3 py-3">{r.name}</td>
-                  <td className="px-3 py-3">{r.usersCount}</td>
-                  <td className="px-3 py-3">
-                    <span
-                      className={
-                        cn(
-                          "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium",
-                          r.status === "Active" ? "bg-emerald-100 text-emerald-700" : "bg-neutral-200 text-neutral-700"
-                        )
-                      }
-                    >
-                      {r.status}
-                    </span>
-                  </td>
-                  <td className="px-3 py-3">
-                    <div className="inline-flex overflow-hidden rounded-md border">
-                      <Link
-                        href={`/admin/roles/edit/${r.id}`}
-                        className="p-2.5 hover:bg-muted"
-                        aria-label="Edit"
-                        title="Edit"
-                      >
-                        <Pencil className="h-4 w-4" />
-                      </Link>
-                      {r.status === "Active" ? (
-                        <button
-                          onClick={() => handleActionClick("pause", r)}
-                          className="border-l p-2.5 hover:bg-muted"
-                          aria-label="Pause"
-                          title="Pause"
-                        >
-                          <Pause className="h-4 w-4" />
-                        </button>
-                      ) : (
-                        <button
-                          onClick={() => handleActionClick("resume", r)}
-                          className="border-l p-2.5 hover:bg-muted"
-                          aria-label="Resume"
-                          title="Resume"
-                        >
-                          <Play className="h-4 w-4" />
-                        </button>
-                      )}
-                      <button
-                        onClick={() => handleActionClick("delete", r)}
-                        className="border-l p-2.5 text-red-600 hover:bg-muted"
-                        aria-label="Delete"
-                        title="Delete"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
-                    </div>
+            </thead>
+            <tbody>
+              {apiRoles.length === 0 ? (
+                <tr>
+                  <td colSpan={3} className="px-3 py-8 text-center text-muted-foreground">
+                    No data
                   </td>
                 </tr>
-              ))
-            )}
-          </tbody>
-        </table>
+              ) : (
+                apiRoles.map((r, idx) => (
+                  <tr key={r.id} className="border-t">
+                    <td className="px-3 py-3">{(currentPage - 1) * pageSize + idx + 1}</td>
+                    <td className="px-3 py-3">{r.name}</td>
+                    <td className="px-3 py-3">
+                      <div className="inline-flex overflow-hidden rounded-md border">
+                        <Link
+                          href={`/admin/roles/edit/${r.id}`}
+                          className="p-2.5 hover:bg-muted"
+                          aria-label="Edit"
+                          title="Edit"
+                        >
+                          <Pencil className="h-4 w-4" />
+                        </Link>
+                        <button
+                          onClick={() => handleActionClick("delete", r)}
+                          className="border-l p-2.5 text-red-600 hover:bg-muted"
+                          aria-label="Delete"
+                          title="Delete"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        )}
       </div>
 
       {/* Pagination */}
       <div className="flex items-center justify-between gap-2">
         <p className="text-sm text-muted-foreground">
-          Page {currentPage} of {totalPages} • {filtered.length} items
+          Page {currentPage} of {totalPages} • {apiRoles.length} items
         </p>
         <Pagination
           currentPage={currentPage}
@@ -252,7 +215,7 @@ function AdminRoles() {
         onConfirm={handleConfirmAction}
         title="Confirm Action"
         message={`Are you sure to ${confirmDialog.action} ${confirmDialog.role?.name}?`}
-        confirmText="OK"
+        confirmText={deleteMutation.isPending ? "Working..." : "OK"}
         cancelText="Cancel"
         variant={confirmDialog.action === "delete" ? "destructive" : "default"}
       />

@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -10,15 +10,18 @@ import { ArrowLeft, Save } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Select } from "@/components/ui/select";
 import { Collapsible } from "@/components/ui/collapsible";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import AdminRolePermissionJson from "./partials/AdminRolePermissionJson";
 import AdminRolePermissionVisual from "./partials/AdminRolePermissionVisual";
+import { useEffect } from "react";
+import { useRolesControllerCreate, useRolesControllerFindOne, useRolesControllerUpdate } from "@/sdk/roles/roles";
+import { useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 
 const roleSchema = z.object({
   name: z.string().min(1, "Name is required"),
-  status: z.enum(["Active", "Inactive"]),
+  description: z.string().optional(),
   permissions: z.array(z.string()),
 });
 
@@ -26,8 +29,12 @@ type RoleFormData = z.infer<typeof roleSchema>;
 
 function AdminRole() {
   const router = useRouter();
+  const params = useParams<{ id?: string }>();
+  const roleId = params?.id as string | undefined;
+  const isEditMode = Boolean(roleId);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [activeTab, setActiveTab] = useState("visual");
+  const queryClient = useQueryClient();
 
   const {
     register,
@@ -40,19 +47,89 @@ function AdminRole() {
     resolver: zodResolver(roleSchema),
     defaultValues: {
       name: "",
-      status: "Active",
+      description: "",
       permissions: [],
     },
   });
 
+  const { data: getOneResp } = useRolesControllerFindOne(roleId ?? "", {
+    query: {
+      enabled: isEditMode,
+    },
+  });
+
+  useEffect(() => {
+    const role = getOneResp?.data;
+    if (!role) return;
+    // Backend permissions are object; UI uses string[] like Resource:Action
+    const keys: string[] = Array.isArray(role.permissions)
+      ? []
+      : role.permissions
+      ? Object.entries(role.permissions)
+          .flatMap(([resource, actions]) => {
+            if (!actions) return [] as string[];
+            if (Array.isArray(actions)) return actions.map((a) => `${resource}:${a}`);
+            if (typeof actions === "object") return Object.keys(actions as any).map((a) => `${resource}:${a}`);
+            return [] as string[];
+          })
+      : [];
+    reset({ name: role.name ?? "", description: (role as any).description ?? "", permissions: keys });
+  }, [getOneResp, reset]);
+
+  const createMutation = useRolesControllerCreate({
+    mutation: {
+      onSuccess: async (resp) => {
+        toast.success("Role created", { duration: 2500 });
+        await queryClient.invalidateQueries({ predicate: (q) => Array.isArray(q.queryKey) && String(q.queryKey[0]).includes("/roles") });
+        const newId = resp.data.id;
+        if (newId) router.replace(`/admin/roles/edit/${newId}`);
+      },
+      onError: (err) => {
+        const message = (err as any)?.response?.data?.message || "Failed to create role";
+        toast.error(message, { duration: 3000 });
+      },
+    },
+  });
+
+  const updateMutation = useRolesControllerUpdate({
+    mutation: {
+      onSuccess: async () => {
+        toast.success("Role updated", { duration: 2500 });
+        await queryClient.invalidateQueries({ predicate: (q) => Array.isArray(q.queryKey) && String(q.queryKey[0]).includes("/roles") });
+      },
+      onError: (err) => {
+        const message = (err as any)?.response?.data?.message || "Failed to update role";
+        toast.error(message, { duration: 3000 });
+      },
+    },
+  });
+
+  const toPermissionsObject = (permissionKeys: string[]) => {
+    // Convert ["Resource:Action", ...] into { Resource: [Action, ...] }
+    const map: Record<string, string[]> = {};
+    for (const key of permissionKeys) {
+      const [resource, action] = key.split(":");
+      if (!resource || !action) continue;
+      if (!map[resource]) map[resource] = [];
+      if (!map[resource].includes(action)) map[resource].push(action);
+    }
+    return map as any;
+  };
+
   const onSubmit = async (data: RoleFormData) => {
     setIsSubmitting(true);
     try {
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-      console.log("Role form submitted:", data);
-      router.push("/admin/roles");
-    } catch (error) {
-      console.error("Error submitting role form:", error);
+      const payload = {
+        name: data.name,
+        description: data.description || undefined,
+        permissions: toPermissionsObject(data.permissions),
+      } as const;
+
+      if (isEditMode && roleId) {
+        updateMutation.mutate({ id: roleId, data: payload });
+      } else {
+        createMutation.mutate({ data: payload });
+      }
     } finally {
       setIsSubmitting(false);
     }
@@ -111,21 +188,19 @@ function AdminRole() {
               )}
             </div>
 
-            {/* Status Field */}
+            {/* Description Field */}
             <div className="space-y-2">
-              <label htmlFor="status" className="text-sm font-medium">
-                Status <span className="text-red-500">*</span>
+              <label htmlFor="description" className="text-sm font-medium">
+                Description
               </label>
-              <Select
-                id="status"
-                {...register("status")}
-                className={cn(errors.status && "border-red-500 focus-visible:ring-red-500")}
-              >
-                <option value="Active">Active</option>
-                <option value="Inactive">Inactive</option>
-              </Select>
-              {errors.status && (
-                <p className="text-sm text-red-500">{errors.status.message}</p>
+              <Input
+                id="description"
+                {...register("description")}
+                placeholder="Enter description"
+                className={cn(errors.description && "border-red-500 focus-visible:ring-red-500")}
+              />
+              {errors.description && (
+                <p className="text-sm text-red-500">{errors.description.message}</p>
               )}
             </div>
           </div>
@@ -176,7 +251,7 @@ function AdminRole() {
             className="w-full md:w-auto px-8"
           >
             <Save className="mr-2 h-4 w-4" />
-            {isSubmitting ? "Saving..." : "Save"}
+            {isSubmitting || createMutation.isPending || updateMutation.isPending ? "Saving..." : "Save"}
           </Button>
           <Button
             type="button"
