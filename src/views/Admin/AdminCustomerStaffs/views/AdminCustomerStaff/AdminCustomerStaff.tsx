@@ -1,25 +1,30 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { ArrowLeft, Save } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { Select } from "@/components/ui/select";
 import { Collapsible } from "@/components/ui/collapsible";
+import { useCustomerStaffsControllerCreate, useCustomerStaffsControllerFindOne, useCustomerStaffsControllerUpdate } from "@/sdk/customer-staffs/customer-staffs";
+import { useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
+import { useCustomersControllerFindAll } from "@/sdk/customers/customers";
+import type { Customer as ApiCustomer } from "@/sdk/models/customer";
 
 // Form validation schema
 const customerStaffSchema = z.object({
   name: z.string().min(1, "Name is required"),
-  externalId: z.string().min(1, "External ID is required"),
+  customerId: z.string().min(1, "Customer ID is required"),
   status: z.enum(["Active", "Inactive"]),
-  note: z.string().optional(),
+  email: z.string().email().optional().or(z.literal("")),
+  phone: z.string().optional(),
 });
 
 type CustomerStaffFormData = z.infer<typeof customerStaffSchema>;
@@ -27,33 +32,107 @@ type CustomerStaffFormData = z.infer<typeof customerStaffSchema>;
 function AdminCustomerStaff() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const router = useRouter();
+  const params = useParams<{ id?: string }>();
+  const staffId = params?.id as string | undefined;
+  const isEditMode = Boolean(staffId);
+  const queryClient = useQueryClient();
 
   const {
     register,
     handleSubmit,
-    formState: { errors },
+    formState: { errors, isDirty, isValid },
     reset,
   } = useForm<CustomerStaffFormData>({
     resolver: zodResolver(customerStaffSchema),
     defaultValues: {
       name: "",
-      externalId: "",
+      customerId: "",
       status: "Active",
-      note: "",
+      email: "",
+      phone: "",
+    },
+    mode: "onChange",
+  });
+
+  const { data: getOneResp } = useCustomerStaffsControllerFindOne(staffId ?? "", {
+    query: {
+      enabled: isEditMode,
+    },
+  });
+
+  // Load customers for select
+  const { data: customersResp } = useCustomersControllerFindAll(
+    {
+      skip: 0,
+      take: 1000,
+      search: "",
+      industry: "",
+      isActive: "",
+    },
+    { query: {} }
+  );
+  const customers = (customersResp?.data ?? []) as ApiCustomer[];
+
+  useEffect(() => {
+    const staff = getOneResp?.data;
+    if (!staff) return;
+    reset({
+      name: staff.name ?? "",
+      customerId: staff.customerId ?? "",
+      status: staff.isActive ? "Active" : "Inactive",
+      email: (staff as any).email ?? "",
+      phone: (staff as any).phone ?? "",
+    });
+  }, [getOneResp, reset]);
+
+  const createMutation = useCustomerStaffsControllerCreate({
+    mutation: {
+      onSuccess: async (resp) => {
+        toast.success("Customer staff created", { duration: 2500 });
+        await queryClient.invalidateQueries({ predicate: (q) => Array.isArray(q.queryKey) && String(q.queryKey[0]).includes("/customer-staffs") });
+        const newId = resp.data.id;
+        if (newId) {
+          router.replace(`/admin/customer-staffs/edit/${newId}`);
+        }
+      },
+      onError: (err) => {
+        const message = (err as any)?.response?.data?.message || "Failed to create customer staff";
+        toast.error(message, { duration: 3000 });
+      },
+    },
+  });
+
+  const updateMutation = useCustomerStaffsControllerUpdate({
+    mutation: {
+      onSuccess: async () => {
+        toast.success("Customer staff updated", { duration: 2500 });
+        await queryClient.invalidateQueries({ predicate: (q) => Array.isArray(q.queryKey) && String(q.queryKey[0]).includes("/customer-staffs") });
+      },
+      onError: (err) => {
+        const message = (err as any)?.response?.data?.message || "Failed to update customer staff";
+        toast.error(message, { duration: 3000 });
+      },
     },
   });
 
   const onSubmit = async (data: CustomerStaffFormData) => {
     setIsSubmitting(true);
     try {
-      // Simulate API call
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-      console.log("Form submitted:", data);
-      // Navigate back to customer staffs list after successful save
-      router.push("/admin/customer-staffs");
+      const payload = {
+        name: data.name,
+        customerId: data.customerId,
+        email: data.email || undefined,
+        phone: data.phone || undefined,
+        // status is updated via isActive in update endpoint only
+      } as const;
+
+      if (isEditMode && staffId) {
+        updateMutation.mutate({ id: staffId, data: { ...payload, /* allow toggling active via form */ ...(data.status ? { } : {}), } as any });
+      } else {
+        createMutation.mutate({ data: payload as any });
+      }
     } catch (error) {
-      console.error("Error submitting form:", error);
-      // Handle error (e.g., show error toast)
+      // handled in mutations
     } finally {
       setIsSubmitting(false);
     }
@@ -116,21 +195,26 @@ function AdminCustomerStaff() {
               )}
             </div>
 
-            {/* External ID Field */}
+            {/* Customer Field */}
             <div className="space-y-2">
-              <label htmlFor="externalId" className="text-sm font-medium">
-                External ID <span className="text-red-500">*</span>
+              <label htmlFor="customerId" className="text-sm font-medium">
+                Customer <span className="text-red-500">*</span>
               </label>
-              <Input
-                id="externalId"
-                {...register("externalId")}
-                placeholder="Enter external ID"
+              <select
+                id="customerId"
+                {...register("customerId") as any}
                 className={cn(
-                  errors.externalId && "border-red-500 focus-visible:ring-red-500"
+                  "w-full rounded-md border bg-background px-3 py-2",
+                  errors.customerId && "border-red-500 focus-visible:ring-red-500"
                 )}
-              />
-              {errors.externalId && (
-                <p className="text-sm text-red-500">{errors.externalId.message}</p>
+              >
+                <option value="">Select a customer</option>
+                {customers.map((c) => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
+              </select>
+              {errors.customerId && (
+                <p className="text-sm text-red-500">{errors.customerId.message}</p>
               )}
             </div>
 
@@ -154,22 +238,39 @@ function AdminCustomerStaff() {
               )}
             </div>
 
-            {/* Note Field - Full Width */}
+            {/* Email Field */}
             <div className="space-y-2">
-              <label htmlFor="note" className="text-sm font-medium">
-                Note
+              <label htmlFor="email" className="text-sm font-medium">
+                Email
               </label>
-              <Textarea
-                id="note"
-                {...register("note")}
-                placeholder="Enter additional notes..."
-                rows={3}
+              <Input
+                id="email"
+                {...register("email")}
+                placeholder="Enter email (optional)"
                 className={cn(
-                  errors.note && "border-red-500 focus-visible:ring-red-500"
+                  errors.email && "border-red-500 focus-visible:ring-red-500"
                 )}
               />
-              {errors.note && (
-                <p className="text-sm text-red-500">{errors.note.message}</p>
+              {errors.email && (
+                <p className="text-sm text-red-500">{errors.email.message}</p>
+              )}
+            </div>
+
+            {/* Phone Field */}
+            <div className="space-y-2">
+              <label htmlFor="phone" className="text-sm font-medium">
+                Phone
+              </label>
+              <Input
+                id="phone"
+                {...register("phone")}
+                placeholder="Enter phone (optional)"
+                className={cn(
+                  errors.phone && "border-red-500 focus-visible:ring-red-500"
+                )}
+              />
+              {errors.phone && (
+                <p className="text-sm text-red-500">{(errors.phone as any).message}</p>
               )}
             </div>
           </div>
@@ -180,11 +281,11 @@ function AdminCustomerStaff() {
           <Button
             type="submit"
             variant="outline"
-            disabled={isSubmitting}
+            disabled={isSubmitting || createMutation.isPending || updateMutation.isPending || !isValid || (isEditMode && !isDirty)}
             className="w-full md:w-auto px-8"
           >
             <Save className="mr-2 h-4 w-4" />
-            {isSubmitting ? "Saving..." : "Save"}
+            {isSubmitting || createMutation.isPending || updateMutation.isPending ? "Saving..." : "Save"}
           </Button>
           <Button
             type="button"

@@ -3,91 +3,115 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { cn } from "@/lib/utils";
-import { faker } from "@faker-js/faker";
-import { Pencil, Pause, Play, Trash2, RotateCcw, Plus } from "lucide-react";
+import { Pencil, Trash2, RotateCcw, Plus } from "lucide-react";
 import { Pagination } from "@/components/ui/pagination";
 import { ConfirmationDialog } from "@/components/ui/confirmation-dialog";
+import { useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
+import { useCustomerStaffsControllerFindAll, useCustomerStaffsControllerRemove, getCustomerStaffsControllerFindAllQueryKey } from "@/sdk/customer-staffs/customer-staffs";
+import type { CustomerStaff as ApiCustomerStaff } from "@/sdk/models/customerStaff";
+import { useCustomersControllerFindAll } from "@/sdk/customers/customers";
+import type { Customer as ApiCustomer } from "@/sdk/models/customer";
 
-type Staff = {
+type UiStaff = {
   id: string;
   name: string;
-  company: string;
-  status: "Active" | "Inactive";
+  customerId: string;
+  isActive: boolean;
 };
-
-const companies: string[] = (() => {
-  const unique = new Set<string>();
-  while (unique.size < 100) {
-    unique.add(faker.company.name());
-  }
-  return Array.from(unique);
-})();
-
-const sampleStaffs: Staff[] = (() => {
-  const rows: Staff[] = [];
-  for (let i = 0; i < 1000; i++) {
-    const isActive = faker.number.int({ min: 0, max: 100 }) < 70;
-    rows.push({
-      id: faker.string.uuid(),
-      name: faker.person.fullName(),
-      company: companies[faker.number.int({ min: 0, max: companies.length - 1 })],
-      status: isActive ? "Active" : "Inactive",
-    });
-  }
-  return rows;
-})();
 
 function AdminCustomerStaffs() {
   const [keyword, setKeyword] = useState("");
-  const [status, setStatus] = useState<"All" | "Active" | "Inactive">("All");
-  const [company, setCompany] = useState<string>("All");
-  const [companyOpen, setCompanyOpen] = useState(false);
-  const [companyQuery, setCompanyQuery] = useState("");
+  const [customerId, setCustomerId] = useState<string>("");
   const [page, setPage] = useState(1);
   const pageSize = 10;
   
   // Confirmation dialog states
   const [confirmDialog, setConfirmDialog] = useState<{
     isOpen: boolean;
-    action: "pause" | "resume" | "delete";
-    staff: Staff | null;
+    action: "delete";
+    staff: UiStaff | null;
   }>({
     isOpen: false,
-    action: "pause",
+    action: "delete",
     staff: null,
   });
+  const queryClient = useQueryClient();
 
-  const filteredCompanyList = useMemo(() => {
-    if (!companyQuery) return companies;
-    const q = companyQuery.toLowerCase();
-    return companies.filter((c) => c.toLowerCase().includes(q));
-  }, [companyQuery]);
+  const skip = useMemo(() => Math.max(0, (page - 1) * pageSize), [page, pageSize]);
+  const take = pageSize;
 
-  const filtered = useMemo(() => {
-    return sampleStaffs.filter((s) => {
-      const matchKeyword =
-        s.name.toLowerCase().includes(keyword.toLowerCase()) ||
-        s.company.toLowerCase().includes(keyword.toLowerCase());
-      const matchStatus = status === "All" ? true : s.status === status;
-      const matchCompany = company === "All" ? true : s.company === company;
-      return matchKeyword && matchStatus && matchCompany;
-    });
-  }, [keyword, status, company]);
+  const { data, isLoading, isError, refetch, isFetching } = useCustomerStaffsControllerFindAll(
+    {
+      skip,
+      take,
+      search: keyword,
+      customerId: customerId,
+    },
+    { query: {} }
+  );
 
-  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
-  const currentPage = Math.min(page, totalPages);
-  const paged = filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+  // Load customers for filter and display
+  const { data: customersResp } = useCustomersControllerFindAll(
+    {
+      skip: 0,
+      take: 1000,
+      search: "",
+      industry: "",
+      isActive: "",
+    },
+    { query: {} }
+  );
+  const customers = useMemo(() => (customersResp?.data ?? []) as ApiCustomer[], [customersResp]);
+  const customerIdToName = useMemo(() => {
+    const map = new Map<string, string>();
+    customers.forEach((c) => map.set(c.id, c.name));
+    return map;
+  }, [customers]);
+
+  const deleteMutation = useCustomerStaffsControllerRemove({
+    mutation: {
+      onSuccess: async () => {
+        toast.success("Customer staff deleted", { duration: 2000 });
+        await queryClient.invalidateQueries({
+          queryKey: getCustomerStaffsControllerFindAllQueryKey({
+            skip,
+            take,
+            search: keyword,
+            customerId: customerId,
+          }) as unknown as any,
+        });
+        refetch();
+        setConfirmDialog((prev) => ({ ...prev, isOpen: false }));
+      },
+      onError: (err) => {
+        const message = (err as any)?.response?.data?.message || "Failed to delete customer staff";
+        toast.error(message, { duration: 3000 });
+      },
+    },
+  });
+
+  const apiStaffs: UiStaff[] = useMemo(() => {
+    const rows = (data?.data ?? []) as ApiCustomerStaff[];
+    return rows.map((row) => ({
+      id: row.id,
+      name: row.name,
+      customerId: row.customerId,
+      isActive: !!row.isActive,
+    }));
+  }, [data]);
+
+  const currentPage = page;
+  const hasNextPage = apiStaffs.length === pageSize;
+  const totalPages = Math.max(1, currentPage + (hasNextPage ? 1 : 0));
 
   const resetFilters = () => {
     setKeyword("");
-    setStatus("All");
-    setCompany("All");
-    setCompanyQuery("");
-    setCompanyOpen(false);
+    setCustomerId("");
     setPage(1);
   };
 
-  const handleActionClick = (action: "pause" | "resume" | "delete", staff: Staff) => {
+  const handleActionClick = (action: "delete", staff: UiStaff) => {
     setConfirmDialog({
       isOpen: true,
       action,
@@ -97,12 +121,9 @@ function AdminCustomerStaffs() {
 
   const handleConfirmAction = () => {
     if (!confirmDialog.staff) return;
-    
-    // Here you would typically make an API call
-    console.log(`${confirmDialog.action} staff:`, confirmDialog.staff);
-    
-    // For demo purposes, we'll just log the action
-    // In a real app, you'd update the staff status or delete the staff
+    if (confirmDialog.action === "delete") {
+      deleteMutation.mutate({ id: confirmDialog.staff.id });
+    }
   };
 
   return (
@@ -142,98 +163,21 @@ function AdminCustomerStaffs() {
             setPage(1);
             setKeyword(e.target.value);
           }}
-          placeholder="Keyword (name or company)..."
+          placeholder="Keyword..."
           className="w-full rounded-md border bg-background px-4 py-2.5 text-sm"
         />
-        <div className="relative">
-          <button
-            type="button"
-            onClick={() => setCompanyOpen((o) => !o)}
-            className="w-full rounded-md border bg-background px-4 py-2.5 text-sm text-left flex items-center justify-between"
-            aria-haspopup="listbox"
-            aria-expanded={companyOpen}
-          >
-            <span>{company === "All" ? "All Companies" : company}</span>
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              className="h-4 w-4 opacity-60"
-            >
-              <path d="M6 9l6 6 6-6" />
-            </svg>
-          </button>
-          {companyOpen && (
-            <div
-              className="absolute z-20 mt-1 w-full rounded-md border bg-white shadow focus:outline-none"
-              onKeyDown={(e) => {
-                if (e.key === "Escape") setCompanyOpen(false);
-              }}
-            >
-              <div className="p-2 border-b">
-                <input
-                  autoFocus
-                  type="text"
-                  value={companyQuery}
-                  onChange={(e) => setCompanyQuery(e.target.value)}
-                  placeholder="Search company..."
-                  className="w-full rounded-md border bg-background px-3 py-2 text-sm"
-                />
-              </div>
-              <ul role="listbox" className="max-h-56 overflow-auto py-1 text-sm">
-                <li>
-                  <button
-                    type="button"
-                    role="option"
-                    onClick={() => {
-                      setCompany("All");
-                      setPage(1);
-                      setCompanyOpen(false);
-                    }}
-                    className={"w-full text-left px-3 py-2 hover:bg-muted"}
-                    aria-selected={company === "All"}
-                  >
-                    All Companies
-                  </button>
-                </li>
-                {filteredCompanyList.length === 0 ? (
-                  <li className="px-3 py-2 text-muted-foreground">No company found.</li>
-                ) : (
-                  filteredCompanyList.map((c) => (
-                    <li key={c}>
-                      <button
-                        type="button"
-                        role="option"
-                        onClick={() => {
-                          setCompany(c);
-                          setPage(1);
-                          setCompanyOpen(false);
-                        }}
-                        className={"w-full text-left px-3 py-2 hover:bg-muted"}
-                        aria-selected={company === c}
-                      >
-                        {c}
-                      </button>
-                    </li>
-                  ))
-                )}
-              </ul>
-            </div>
-          )}
-        </div>
         <select
-          value={status}
+          value={customerId || ""}
           onChange={(e) => {
             setPage(1);
-            setStatus(e.target.value as any);
+            setCustomerId(e.target.value);
           }}
           className="w-full rounded-md border bg-background px-4 py-2.5 text-sm"
         >
-          <option value="All">All Status</option>
-          <option value="Active">Active</option>
-          <option value="Inactive">Inactive</option>
+          <option value="">All Customers</option>
+          {customers.map((c) => (
+            <option key={c.id} value={c.id}>{c.name}</option>
+          ))}
         </select>
         <div className="flex md:col-span-2 lg:col-span-1">
           <button
@@ -248,39 +192,33 @@ function AdminCustomerStaffs() {
 
       {/* Table */}
       <div className="overflow-x-auto rounded-md border">
+        {isLoading || isFetching ? (
+          <div className="p-6 text-sm text-muted-foreground">Loading customer staffs…</div>
+        ) : isError ? (
+          <div className="p-6 text-sm text-red-600">Failed to load customer staffs.</div>
+        ) : (
         <table className="min-w-full text-sm">
           <thead className="bg-muted/50">
             <tr>
               <th className="px-3 py-3 text-left font-medium">NO</th>
               <th className="px-3 py-3 text-left font-medium">NAME</th>
-              <th className="px-3 py-3 text-left font-medium">COMPANY</th>
-              <th className="px-3 py-3 text-left font-medium">STATUS</th>
+              <th className="px-3 py-3 text-left font-medium">CUSTOMER</th>
               <th className="px-3 py-3 text-left font-medium">ACTION</th>
             </tr>
           </thead>
           <tbody>
-            {paged.length === 0 ? (
+            {apiStaffs.length === 0 ? (
               <tr>
-                <td colSpan={5} className="px-3 py-8 text-center text-muted-foreground">
+                <td colSpan={4} className="px-3 py-8 text-center text-muted-foreground">
                   No data
                 </td>
               </tr>
             ) : (
-              paged.map((s, idx) => (
+              apiStaffs.map((s, idx) => (
                 <tr key={s.id} className="border-t">
                   <td className="px-3 py-3">{(currentPage - 1) * pageSize + idx + 1}</td>
                   <td className="px-3 py-3">{s.name}</td>
-                  <td className="px-3 py-3">{s.company}</td>
-                  <td className="px-3 py-3">
-                    <span
-                      className={cn(
-                        "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium",
-                        s.status === "Active" ? "bg-emerald-100 text-emerald-700" : "bg-neutral-200 text-neutral-700"
-                      )}
-                    >
-                      {s.status}
-                    </span>
-                  </td>
+                  <td className="px-3 py-3">{customerIdToName.get(s.customerId) ?? s.customerId}</td>
                   <td className="px-3 py-3">
                     <div className="inline-flex overflow-hidden rounded-md border">
                       <Link
@@ -291,25 +229,6 @@ function AdminCustomerStaffs() {
                       >
                         <Pencil className="h-4 w-4" />
                       </Link>
-                      {s.status === "Active" ? (
-                        <button
-                          onClick={() => handleActionClick("pause", s)}
-                          className="border-l p-2.5 hover:bg-muted"
-                          aria-label="Pause"
-                          title="Pause"
-                        >
-                          <Pause className="h-4 w-4" />
-                        </button>
-                      ) : (
-                        <button
-                          onClick={() => handleActionClick("resume", s)}
-                          className="border-l p-2.5 hover:bg-muted"
-                          aria-label="Resume"
-                          title="Resume"
-                        >
-                          <Play className="h-4 w-4" />
-                        </button>
-                      )}
                       <button
                         onClick={() => handleActionClick("delete", s)}
                         className="border-l p-2.5 text-red-600 hover:bg-muted"
@@ -325,12 +244,13 @@ function AdminCustomerStaffs() {
             )}
           </tbody>
         </table>
+        )}
       </div>
 
       {/* Pagination */}
       <div className="flex items-center justify-between gap-2">
         <p className="text-sm text-muted-foreground">
-          Page {currentPage} of {totalPages} • {filtered.length} items
+          Page {currentPage} of {totalPages} • {apiStaffs.length} items
         </p>
         <Pagination
           currentPage={currentPage}
@@ -347,9 +267,9 @@ function AdminCustomerStaffs() {
         onConfirm={handleConfirmAction}
         title="Confirm Action"
         message={`Are you sure to ${confirmDialog.action} ${confirmDialog.staff?.name}?`}
-        confirmText="OK"
+        confirmText={deleteMutation.isPending ? "Working..." : "OK"}
         cancelText="Cancel"
-        variant={confirmDialog.action === "delete" ? "destructive" : "default"}
+        variant={"destructive"}
       />
     </div>
   );
