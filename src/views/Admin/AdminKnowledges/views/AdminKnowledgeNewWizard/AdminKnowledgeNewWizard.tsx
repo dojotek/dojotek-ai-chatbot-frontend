@@ -13,10 +13,15 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Collapsible } from "@/components/ui/collapsible";
+import { useKnowledgesControllerCreate } from "@/sdk/knowledges/knowledges";
+import { useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 
 const knowledgeSchema = z.object({
-  title: z.string().min(1, "Title is required"),
+  name: z.string().min(1, "Name is required"),
   description: z.string().optional(),
+  category: z.string().optional(),
+  isActive: z.boolean(),
 });
 
 type KnowledgeFormData = z.infer<typeof knowledgeSchema>;
@@ -24,28 +29,41 @@ type KnowledgeFormData = z.infer<typeof knowledgeSchema>;
 function AdminKnowledgeNewWizard() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const router = useRouter();
+  const queryClient = useQueryClient();
+  const createMutation = useKnowledgesControllerCreate({
+    mutation: {
+      onSuccess: async () => {
+        toast.success("Knowledge created", { duration: 2000 });
+        // Invalidate any knowledges list queries
+        await queryClient.invalidateQueries({ predicate: (q) => Array.isArray(q.queryKey) && String(q.queryKey[0]).includes("/knowledges") });
+        router.push("/admin/knowledges");
+      },
+      onError: (err) => {
+        const message = (err as any)?.response?.data?.message || "Failed to create knowledge";
+        toast.error(message, { duration: 3000 });
+      },
+    },
+  });
 
   const {
     register,
     handleSubmit,
-    formState: { errors },
+    formState: { errors, isDirty },
     reset,
   } = useForm<KnowledgeFormData>({
     resolver: zodResolver(knowledgeSchema),
     defaultValues: {
-      title: "",
+      name: "",
       description: "",
+      category: "",
+      isActive: true,
     },
   });
 
   const onSubmit = async (data: KnowledgeFormData) => {
     setIsSubmitting(true);
     try {
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-      console.log("Knowledge form submitted:", data);
-      router.push("/admin/knowledges");
-    } catch (error) {
-      console.error("Error submitting knowledge form:", error);
+      createMutation.mutate({ data });
     } finally {
       setIsSubmitting(false);
     }
@@ -86,24 +104,25 @@ function AdminKnowledgeNewWizard() {
 
       {/* Form */}
       <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
-        {/* Collapsible Section */}
+      {/* Collapsible Section */
+      }
         <Collapsible title="Knowledge Information" defaultOpen={true}>
           <div className="grid grid-cols-1 gap-10 md:grid-cols-2">
             {/* Title Field */}
             <div className="space-y-2">
-              <label htmlFor="title" className="text-sm font-medium">
-                Title <span className="text-red-500">*</span>
+            <label htmlFor="name" className="text-sm font-medium">
+              Name <span className="text-red-500">*</span>
               </label>
               <Input
-                id="title"
-                {...register("title")}
-                placeholder="Enter title"
+              id="name"
+              {...register("name")}
+              placeholder="Enter name"
                 className={cn(
-                  errors.title && "border-red-500 focus-visible:ring-red-500"
+                errors.name && "border-red-500 focus-visible:ring-red-500"
                 )}
               />
-              {errors.title && (
-                <p className="text-sm text-red-500">{errors.title.message}</p>
+            {errors.name && (
+              <p className="text-sm text-red-500">{errors.name.message}</p>
               )}
             </div>
 
@@ -125,6 +144,29 @@ function AdminKnowledgeNewWizard() {
                 <p className="text-sm text-red-500">{errors.description.message}</p>
               )}
             </div>
+
+          {/* Category */}
+          <div className="space-y-2">
+            <label htmlFor="category" className="text-sm font-medium">
+              Category
+            </label>
+            <Input
+              id="category"
+              {...register("category")}
+              placeholder="e.g., policy, product, faq"
+            />
+          </div>
+
+          {/* Active */}
+          <div className="space-y-2">
+            <label htmlFor="isActive" className="text-sm font-medium">
+              Active
+            </label>
+            <div className="flex items-center gap-2">
+              <input id="isActive" type="checkbox" {...register("isActive")} />
+              <span className="text-sm text-muted-foreground">Enabled</span>
+            </div>
+          </div>
           </div>
         </Collapsible>
 
@@ -133,11 +175,11 @@ function AdminKnowledgeNewWizard() {
           <Button
             type="submit"
             variant="outline"
-            disabled={isSubmitting}
+            disabled={isSubmitting || createMutation.isPending || !isDirty}
             className="w-full md:w-auto px-8"
           >
             <Save className="mr-2 h-4 w-4" />
-            {isSubmitting ? "Saving..." : "Save"}
+            {isSubmitting || createMutation.isPending ? "Saving..." : "Save"}
           </Button>
           <Button
             type="button"
