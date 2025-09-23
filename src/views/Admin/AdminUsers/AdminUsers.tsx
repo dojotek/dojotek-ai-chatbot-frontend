@@ -3,95 +3,107 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { cn } from "@/lib/utils";
-import { faker } from "@faker-js/faker";
-import { Pencil, Trash2, Plus, CheckCircle, AlertTriangle, RotateCcw } from "lucide-react";
+import { Pencil, Trash2, Plus, RotateCcw } from "lucide-react";
 import { Pagination } from "@/components/ui/pagination";
 import { ConfirmationDialog } from "@/components/ui/confirmation-dialog";
+import { useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
+import { useUsersControllerFindAll, useUsersControllerRemove, getUsersControllerFindAllQueryKey } from "@/sdk/users/users";
+import { useRolesControllerFindAll } from "@/sdk/roles/roles";
+import type { Role as ApiRole } from "@/sdk/models/role";
+import type { User as ApiUser } from "@/sdk/models/user";
 
-type UserRole = "Super Admin" | "Admin" | "Operational" | "Read Only";
-
-type UserRow = {
+type UiUser = {
   id: string;
   name: string;
   email: string;
-  role: UserRole;
-  lastLogin: Date;
-  hasTwoFactorAuth: boolean;
-  status: "Active" | "Inactive";
+  roleId: string;
+  isActive: boolean;
 };
-
-const ROLE_OPTIONS: UserRole[] = ["Super Admin", "Admin", "Operational", "Read Only"];
-
-const sampleUsers: UserRow[] = (() => {
-  const rows: UserRow[] = [];
-  for (let i = 0; i < 500; i++) {
-    const fullName = faker.person.fullName();
-    const email = faker.internet.email({ firstName: fullName.split(" ")[0], lastName: fullName.split(" ").slice(1).join(" ") }).toLowerCase();
-    const isActive = faker.number.int({ min: 0, max: 100 }) < 80;
-    rows.push({
-      id: faker.string.uuid(),
-      name: fullName,
-      email,
-      role: faker.helpers.arrayElement(ROLE_OPTIONS),
-      lastLogin: faker.date.between({ from: new Date(2023, 0, 1), to: new Date() }),
-      hasTwoFactorAuth: faker.datatype.boolean(0.5),
-      status: isActive ? "Active" : "Inactive",
-    });
-  }
-  return rows;
-})();
-
-function formatLastLogin(date: Date) {
-  const month = date.toLocaleString("en-US", { month: "long" });
-  const day = date.toLocaleString("en-US", { day: "2-digit" });
-  const year = date.getFullYear();
-  const time = date.toLocaleString("en-US", {
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: true,
-  });
-  return `${month} ${day}, ${year} - ${time}`;
-}
 
 function AdminUsers() {
   const [keyword, setKeyword] = useState("");
-  const [role, setRole] = useState<"All" | UserRole>("All");
+  const [roleId, setRoleId] = useState<string>("");
   const [page, setPage] = useState(1);
   const pageSize = 10;
   
   // Confirmation dialog states
   const [confirmDialog, setConfirmDialog] = useState<{
     isOpen: boolean;
-    action: "edit" | "delete";
-    user: UserRow | null;
+    action: "delete";
+    user: UiUser | null;
   }>({
     isOpen: false,
-    action: "edit",
+    action: "delete",
     user: null,
   });
+  const queryClient = useQueryClient();
 
-  const filtered = useMemo(() => {
-    return sampleUsers.filter((u) => {
-      const matchKeyword =
-        keyword.trim() === ""
-          ? true
-          : u.name.toLowerCase().includes(keyword.toLowerCase()) || u.email.toLowerCase().includes(keyword.toLowerCase());
-      const matchRole = role === "All" ? true : u.role === role;
-      return matchKeyword && matchRole;
-    });
-  }, [keyword, role]);
+  const skip = useMemo(() => Math.max(0, (page - 1) * pageSize), [page, pageSize]);
+  const take = pageSize;
 
-  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
-  const currentPage = Math.min(page, totalPages);
-  const paged = filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+  const { data, isLoading, isError, refetch, isFetching } = useUsersControllerFindAll(
+    { skip, take, search: keyword },
+    { query: {} }
+  );
+
+  // Load roles for filter and display
+  const { data: rolesResp } = useRolesControllerFindAll(
+    { skip: 0, take: 1000, search: "" },
+    { query: {} }
+  );
+  const roles = useMemo(() => (rolesResp?.data ?? []) as ApiRole[], [rolesResp]);
+  const roleIdToName = useMemo(() => {
+    const map = new Map<string, string>();
+    roles.forEach((r) => map.set(r.id, r.name));
+    return map;
+  }, [roles]);
+
+  const deleteMutation = useUsersControllerRemove({
+    mutation: {
+      onSuccess: async () => {
+        toast.success("User deleted", { duration: 2000 });
+        await queryClient.invalidateQueries({
+          queryKey: getUsersControllerFindAllQueryKey({ skip, take, search: keyword }) as unknown as any,
+        });
+        refetch();
+        setConfirmDialog((prev) => ({ ...prev, isOpen: false }));
+      },
+      onError: (err) => {
+        const message = (err as any)?.response?.data?.message || "Failed to delete user";
+        toast.error(message, { duration: 3000 });
+      },
+    },
+  });
+
+  const apiUsers: UiUser[] = useMemo(() => {
+    const rows = (data?.data ?? []) as ApiUser[];
+    return rows.map((u) => ({
+      id: u.id,
+      name: (typeof u.name === "string" ? (u.name as unknown as string) : (u.name as any)?.full ?? (u.name as any)?.first ?? "") as string,
+      email: u.email,
+      roleId: u.roleId,
+      isActive: !!u.isActive,
+    }));
+  }, [data]);
+
+  // Client-side role filter on current page data
+  const filteredByRole = useMemo(() => {
+    if (!roleId) return apiUsers;
+    return apiUsers.filter((u) => u.roleId === roleId);
+  }, [apiUsers, roleId]);
+
+  const currentPage = page;
+  const hasNextPage = (data?.data?.length ?? 0) === pageSize;
+  const totalPages = Math.max(1, currentPage + (hasNextPage ? 1 : 0));
 
   const resetFilters = () => {
     setKeyword("");
-    setRole("All");
+    setRoleId("");
     setPage(1);
   };
 
-  const handleActionClick = (action: "edit" | "delete", user: UserRow) => {
+  const handleActionClick = (action: "delete", user: UiUser) => {
     setConfirmDialog({
       isOpen: true,
       action,
@@ -101,12 +113,9 @@ function AdminUsers() {
 
   const handleConfirmAction = () => {
     if (!confirmDialog.user) return;
-    
-    // Here you would typically make an API call
-    console.log(`${confirmDialog.action} user:`, confirmDialog.user);
-    
-    // For demo purposes, we'll just log the action
-    // In a real app, you'd edit the user or delete the user
+    if (confirmDialog.action === "delete") {
+      deleteMutation.mutate({ id: confirmDialog.user.id });
+    }
   };
 
   return (
@@ -152,16 +161,16 @@ function AdminUsers() {
           className="w-full rounded-md border bg-background px-4 py-2.5 text-sm"
         />
         <select
-          value={role}
+          value={roleId || ""}
           onChange={(e) => {
             setPage(1);
-            setRole(e.target.value as any);
+            setRoleId(e.target.value);
           }}
           className="w-full rounded-md border bg-background px-4 py-2.5 text-sm"
         >
-          <option value="All">All Roles</option>
-          {ROLE_OPTIONS.map((r) => (
-            <option key={r} value={r}>{r}</option>
+          <option value="">All Roles</option>
+          {roles.map((r) => (
+            <option key={r.id} value={r.id}>{r.name}</option>
           ))}
         </select>
         <div className="flex md:col-span-2 lg:col-span-1">
@@ -177,57 +186,46 @@ function AdminUsers() {
 
       {/* Table */}
       <div className="overflow-x-auto rounded-md border">
+        {isLoading || isFetching ? (
+          <div className="p-6 text-sm text-muted-foreground">Loading users…</div>
+        ) : isError ? (
+          <div className="p-6 text-sm text-red-600">Failed to load users.</div>
+        ) : (
         <table className="min-w-full text-sm">
           <thead className="bg-muted/50">
             <tr>
               <th className="px-3 py-3 text-left font-medium">NO</th>
               <th className="px-3 py-3 text-left font-medium">NAME</th>
               <th className="px-3 py-3 text-left font-medium">EMAIL</th>
-              <th className="px-3 py-3 text-left font-medium">ROLES</th>
-              <th className="px-3 py-3 text-left font-medium">LAST LOGIN</th>
-              <th className="px-3 py-3 text-left font-medium">2FA</th>
+              <th className="px-3 py-3 text-left font-medium">ROLE</th>
               <th className="px-3 py-3 text-left font-medium">STATUS</th>
               <th className="px-3 py-3 text-left font-medium">ACTION</th>
             </tr>
           </thead>
           <tbody>
-            {paged.length === 0 ? (
+            {filteredByRole.length === 0 ? (
               <tr>
-                <td colSpan={8} className="px-3 py-8 text-center text-muted-foreground">
+                <td colSpan={6} className="px-3 py-8 text-center text-muted-foreground">
                   No data
                 </td>
               </tr>
             ) : (
-              paged.map((u, idx) => (
+              filteredByRole.map((u, idx) => (
                 <tr key={u.id} className="border-t">
                   <td className="px-3 py-3">{(currentPage - 1) * pageSize + idx + 1}</td>
-                  <td className="px-3 py-3">{u.name}</td>
+                  <td className="px-3 py-3">{u.name || "-"}</td>
                   <td className="px-3 py-3">{u.email}</td>
-                  <td className="px-3 py-3">{u.role}</td>
-                  <td className="px-3 py-3">{formatLastLogin(u.lastLogin)}</td>
-                  <td className="px-3 py-3">
-                    {u.hasTwoFactorAuth ? (
-                      <span className="inline-flex items-center gap-1 text-emerald-600">
-                        <CheckCircle className="h-4 w-4" />
-                        Enabled
-                      </span>
-                    ) : (
-                      <span className="inline-flex items-center gap-1 text-amber-600">
-                        <AlertTriangle className="h-4 w-4" />
-                        Disabled
-                      </span>
-                    )}
-                  </td>
+                  <td className="px-3 py-3">{roleIdToName.get(u.roleId) ?? u.roleId}</td>
                   <td className="px-3 py-3">
                     <span
                       className={
                         cn(
                           "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium",
-                          u.status === "Active" ? "bg-emerald-100 text-emerald-700" : "bg-neutral-200 text-neutral-700"
+                          u.isActive ? "bg-emerald-100 text-emerald-700" : "bg-neutral-200 text-neutral-700"
                         )
                       }
                     >
-                      {u.status}
+                      {u.isActive ? "Active" : "Inactive"}
                     </span>
                   </td>
                   <td className="px-3 py-3">
@@ -255,12 +253,13 @@ function AdminUsers() {
             )}
           </tbody>
         </table>
+        )}
       </div>
 
       {/* Pagination */}
       <div className="flex items-center justify-between gap-2">
         <p className="text-sm text-muted-foreground">
-          Page {currentPage} of {totalPages} • {filtered.length} items
+          Page {currentPage} of {totalPages} • {filteredByRole.length} items
         </p>
         <Pagination
           currentPage={currentPage}
@@ -276,10 +275,10 @@ function AdminUsers() {
         onClose={() => setConfirmDialog(prev => ({ ...prev, isOpen: false }))}
         onConfirm={handleConfirmAction}
         title="Confirm Action"
-        message={`Are you sure to ${confirmDialog.action} ${confirmDialog.user?.name}?`}
-        confirmText="OK"
+        message={`Are you sure to ${confirmDialog.action} ${confirmDialog.user?.email}?`}
+        confirmText={deleteMutation.isPending ? "Working..." : "OK"}
         cancelText="Cancel"
-        variant={confirmDialog.action === "delete" ? "destructive" : "default"}
+        variant={"destructive"}
       />
     </div>
   );

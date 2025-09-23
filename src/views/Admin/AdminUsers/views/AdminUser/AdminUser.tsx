@@ -1,26 +1,31 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { ArrowLeft, Save } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Collapsible } from "@/components/ui/collapsible";
+import { useUsersControllerCreate, useUsersControllerFindOne, useUsersControllerUpdate } from "@/sdk/users/users";
+import { useRolesControllerFindAll } from "@/sdk/roles/roles";
+import type { Role as ApiRole } from "@/sdk/models/role";
+import { useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 
 // Form validation schema
 const userSchema = z.object({
   name: z.string().min(1, "Name is required"),
   email: z.string().email("Please enter a valid email address"),
-  role: z.enum(["Admin", "Manager", "User", "Support"]),
+  roleId: z.string().min(1, "Role is required"),
   status: z.enum(["Active", "Inactive"]),
-  password: z.string().min(8, "Password must be at least 8 characters"),
-  passwordConfirmation: z.string(),
+  password: z.string().min(6, "Password must be at least 6 characters").optional().or(z.literal("")),
+  passwordConfirmation: z.string().optional().or(z.literal("")),
 }).refine((data) => data.password === data.passwordConfirmation, {
   message: "Passwords don't match",
   path: ["passwordConfirmation"],
@@ -31,35 +36,106 @@ type UserFormData = z.infer<typeof userSchema>;
 function AdminUser() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const router = useRouter();
+  const params = useParams<{ id?: string }>();
+  const userId = params?.id as string | undefined;
+  const isEditMode = Boolean(userId);
+  const queryClient = useQueryClient();
 
   const {
     register,
     handleSubmit,
-    formState: { errors },
+    formState: { errors, isDirty, isValid },
     reset,
+    watch,
   } = useForm<UserFormData>({
     resolver: zodResolver(userSchema),
     defaultValues: {
       name: "",
       email: "",
-      role: "User",
+      roleId: "",
       status: "Active",
       password: "",
       passwordConfirmation: "",
+    },
+    mode: "onChange",
+  });
+
+  const passwordValue = watch("password", "");
+
+  // Load roles for select
+  const { data: rolesResp } = useRolesControllerFindAll(
+    { skip: 0, take: 1000, search: "" },
+    { query: {} }
+  );
+  const roles = useMemo(() => (rolesResp?.data ?? []) as ApiRole[], [rolesResp]);
+
+  // Load user if edit mode
+  const { data: getOneResp } = useUsersControllerFindOne(userId ?? "", { query: { enabled: isEditMode } });
+
+  useEffect(() => {
+    const user = getOneResp?.data;
+    if (!user) return;
+    reset({
+      name: (typeof user.name === "string" ? (user.name as unknown as string) : (user.name as any)?.full ?? (user.name as any)?.first ?? "") as string,
+      email: user.email,
+      roleId: user.roleId,
+      status: user.isActive ? "Active" : "Inactive",
+      password: "",
+      passwordConfirmation: "",
+    });
+  }, [getOneResp, reset]);
+
+  const createMutation = useUsersControllerCreate({
+    mutation: {
+      onSuccess: async (resp) => {
+        toast.success("User created", { duration: 2500 });
+        await queryClient.invalidateQueries({ predicate: (q) => Array.isArray(q.queryKey) && String(q.queryKey[0]).includes("/users") });
+        const newId = resp.data.id;
+        if (newId) router.replace(`/admin/users/edit/${newId}`);
+      },
+      onError: (err) => {
+        const message = (err as any)?.response?.data?.message || "Failed to create user";
+        toast.error(message, { duration: 3000 });
+      },
+    },
+  });
+
+  const updateMutation = useUsersControllerUpdate({
+    mutation: {
+      onSuccess: async () => {
+        toast.success("User updated", { duration: 2500 });
+        await queryClient.invalidateQueries({ predicate: (q) => Array.isArray(q.queryKey) && String(q.queryKey[0]).includes("/users") });
+      },
+      onError: (err) => {
+        const message = (err as any)?.response?.data?.message || "Failed to update user";
+        toast.error(message, { duration: 3000 });
+      },
     },
   });
 
   const onSubmit = async (data: UserFormData) => {
     setIsSubmitting(true);
     try {
-      // Simulate API call
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-      console.log("Form submitted:", data);
-      // Navigate back to users list after successful save
-      router.push("/admin/users");
+      if (isEditMode && userId) {
+        const payload = {
+          name: data.name,
+          email: data.email,
+          roleId: data.roleId,
+          ...(data.password ? { password: data.password } : {}),
+          // status change would require an endpoint supporting isActive; skipped here
+        } as const;
+        updateMutation.mutate({ id: userId, data: payload as any });
+      } else {
+        const payload = {
+          name: data.name,
+          email: data.email,
+          roleId: data.roleId,
+          password: data.password || "",
+        } as const;
+        createMutation.mutate({ data: payload as any });
+      }
     } catch (error) {
-      console.error("Error submitting form:", error);
-      // Handle error (e.g., show error toast)
+      // handled in mutations
     } finally {
       setIsSubmitting(false);
     }
@@ -146,20 +222,21 @@ function AdminUser() {
               <label htmlFor="role" className="text-sm font-medium">
                 Role <span className="text-red-500">*</span>
               </label>
-              <Select
-                id="role"
-                {...register("role")}
+              <select
+                id="roleId"
+                {...register("roleId") as any}
                 className={cn(
-                  errors.role && "border-red-500 focus-visible:ring-red-500"
+                  "w-full rounded-md border bg-background px-3 py-2",
+                  errors.roleId && "border-red-500 focus-visible:ring-red-500"
                 )}
               >
-                <option value="Admin">Admin</option>
-                <option value="Manager">Manager</option>
-                <option value="User">User</option>
-                <option value="Support">Support</option>
-              </Select>
-              {errors.role && (
-                <p className="text-sm text-red-500">{errors.role.message}</p>
+                <option value="">Select a role</option>
+                {roles.map((r) => (
+                  <option key={r.id} value={r.id}>{r.name}</option>
+                ))}
+              </select>
+              {errors.roleId && (
+                <p className="text-sm text-red-500">{errors.roleId.message}</p>
               )}
             </div>
 
@@ -186,7 +263,7 @@ function AdminUser() {
             {/* Password Field */}
             <div className="space-y-2">
               <label htmlFor="password" className="text-sm font-medium">
-                Password <span className="text-red-500">*</span>
+                Password{!isEditMode ? " *" : ""}
               </label>
               <Input
                 id="password"
@@ -205,7 +282,7 @@ function AdminUser() {
             {/* Password Confirmation Field */}
             <div className="space-y-2">
               <label htmlFor="passwordConfirmation" className="text-sm font-medium">
-                Password Confirmation <span className="text-red-500">*</span>
+                Password Confirmation{!isEditMode ? " *" : ""}
               </label>
               <Input
                 id="passwordConfirmation"
@@ -228,11 +305,18 @@ function AdminUser() {
           <Button
             type="submit"
             variant="outline"
-            disabled={isSubmitting}
+            disabled={
+              isSubmitting ||
+              createMutation.isPending ||
+              updateMutation.isPending ||
+              !isValid ||
+              (isEditMode && !isDirty) ||
+              (!isEditMode && (!passwordValue || String(passwordValue).length < 6))
+            }
             className="w-full md:w-auto px-8"
           >
             <Save className="mr-2 h-4 w-4" />
-            {isSubmitting ? "Saving..." : "Save"}
+            {isSubmitting || createMutation.isPending || updateMutation.isPending ? "Saving..." : "Save"}
           </Button>
           <Button
             type="button"
