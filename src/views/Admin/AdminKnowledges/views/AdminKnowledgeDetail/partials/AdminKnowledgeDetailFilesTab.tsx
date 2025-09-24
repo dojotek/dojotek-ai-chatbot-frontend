@@ -1,85 +1,103 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { FileText, Download, Trash2, Edit } from "lucide-react";
+import { FileText, Download, Trash2, Edit, Play, Pause } from "lucide-react";
 import { Pagination } from "@/components/ui/pagination";
 import { ConfirmationDialog } from "@/components/ui/confirmation-dialog";
 import { cn } from "@/lib/utils";
-import { faker } from "@faker-js/faker";
-
-type KnowledgeFile = {
-  id: string;
-  name: string;
-  tokens: string;
-  uploadedAt: string;
-  status: "Error" | "Pending" | "Processing" | "Processed";
-};
-
-const sampleFiles: KnowledgeFile[] = (() => {
-  const rows: KnowledgeFile[] = [];
-  const fileExtensions = ["pdf", "docx", "pptx", "txt"];
-  const statuses: KnowledgeFile["status"][] = ["Error", "Pending", "Processing", "Processed"];
-  const tokenRanges = ["10+", "50+", "100+", "300+", "500+", "800+", "1200+", "2000+"];
-  
-  for (let i = 0; i < 150; i++) {
-    const ext = faker.helpers.arrayElement(fileExtensions);
-    const status = faker.helpers.arrayElement(statuses);
-    const tokens = faker.helpers.arrayElement(tokenRanges);
-    
-    rows.push({
-      id: faker.string.uuid(),
-      name: `${faker.lorem.words(2).replace(/\s/g, '-')}.${ext}`,
-      tokens,
-      uploadedAt: faker.date.recent({ days: 30 }).toLocaleDateString('en-US', {
-        year: 'numeric',
-        month: 'long',
-        day: '2-digit',
-        hour: '2-digit',
-        minute: '2-digit',
-        hour12: true
-      }),
-      status,
-    });
-  }
-  return rows;
-})();
+import { 
+  useKnowledgeFilesControllerFindByKnowledge,
+  useKnowledgeFilesControllerRemove,
+  useKnowledgeFilesControllerUpdate,
+  getKnowledgeFilesControllerFindByKnowledgeQueryKey
+} from "@/sdk/knowledge-files/knowledge-files";
+import type { KnowledgeFile as ApiKnowledgeFile } from "@/sdk/models/knowledgeFile";
+import { useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 
 type Props = {
+  knowledgeId: string;
   keyword: string;
-  status: "All" | "Error" | "Pending" | "Processing" | "Processed";
+  status: "All" | "failed" | "pending" | "processing" | "processed";
   page: number;
   onPageChange: (page: number) => void;
+  onKeywordChange: (keyword: string) => void;
+  onStatusChange: (status: "All" | "failed" | "pending" | "processing" | "processed") => void;
 };
 
-function AdminKnowledgeDetailFilesTab({ keyword, status, page, onPageChange }: Props) {
+function AdminKnowledgeDetailFilesTab({ knowledgeId, keyword, status, page, onPageChange, onKeywordChange, onStatusChange }: Props) {
   const pageSize = 10;
+  const queryClient = useQueryClient();
   
   // Confirmation dialog states
   const [confirmDialog, setConfirmDialog] = useState<{
     isOpen: boolean;
-    action: "delete";
-    file: KnowledgeFile | null;
+    action: "delete" | "enable" | "disable";
+    file: ApiKnowledgeFile | null;
   }>({
     isOpen: false,
     action: "delete",
     file: null,
   });
 
-  const filtered = useMemo(() => {
-    return sampleFiles.filter((file) => {
-      const matchKeyword = file.name.toLowerCase().includes(keyword.toLowerCase());
-      const matchStatus = status === "All" ? true : file.status === status;
-      return matchKeyword && matchStatus;
-    });
-  }, [keyword, status]);
+  // Fetch knowledge files
+  const { data, isLoading, isError, isFetching, refetch } = useKnowledgeFilesControllerFindByKnowledge(
+    knowledgeId,
+    { 
+      skip: (page - 1) * pageSize, 
+      take: pageSize
+    },
+    { query: { enabled: !!knowledgeId } }
+  );
 
-  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
-  const currentPage = Math.min(page, totalPages);
-  const paged = filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+  // Delete mutation
+  const deleteMutation = useKnowledgeFilesControllerRemove({
+    mutation: {
+      onSuccess: async () => {
+        toast.success("File deleted", { duration: 2000 });
+        await queryClient.invalidateQueries({
+          queryKey: getKnowledgeFilesControllerFindByKnowledgeQueryKey(knowledgeId, { 
+            skip: (page - 1) * pageSize, 
+            take: pageSize
+          }) as unknown as any,
+        });
+        refetch();
+        setConfirmDialog((prev) => ({ ...prev, isOpen: false }));
+      },
+      onError: (err) => {
+        const message = (err as any)?.response?.data?.message || "Failed to delete file";
+        toast.error(message, { duration: 3000 });
+      },
+    },
+  });
 
-  // Filters are controlled by parent
+  // Update mutation for enable/disable
+  const updateMutation = useKnowledgeFilesControllerUpdate({
+    mutation: {
+      onSuccess: async () => {
+        toast.success("File updated", { duration: 1500 });
+        await queryClient.invalidateQueries({
+          queryKey: getKnowledgeFilesControllerFindByKnowledgeQueryKey(knowledgeId, { 
+            skip: (page - 1) * pageSize, 
+            take: pageSize
+          }) as unknown as any,
+        });
+        refetch();
+        setConfirmDialog((prev) => ({ ...prev, isOpen: false }));
+      },
+      onError: (err) => {
+        const message = (err as any)?.response?.data?.message || "Failed to update file";
+        toast.error(message, { duration: 3000 });
+      },
+    },
+  });
 
-  const handleActionClick = (action: "delete", file: KnowledgeFile) => {
+  const apiRows: ApiKnowledgeFile[] = data?.data ?? [];
+  const currentPage = page;
+  const hasNextPage = apiRows.length === pageSize;
+  const totalPages = Math.max(1, currentPage + (hasNextPage ? 1 : 0));
+
+  const handleActionClick = (action: "delete" | "enable" | "disable", file: ApiKnowledgeFile) => {
     setConfirmDialog({
       isOpen: true,
       action,
@@ -90,11 +108,13 @@ function AdminKnowledgeDetailFilesTab({ keyword, status, page, onPageChange }: P
   const handleConfirmAction = () => {
     if (!confirmDialog.file) return;
     
-    // Here you would typically make an API call
-    console.log(`${confirmDialog.action} file:`, confirmDialog.file);
-    
-    // For demo purposes, we'll just log the action
-    // In a real app, you'd delete the file
+    if (confirmDialog.action === "delete") {
+      deleteMutation.mutate({ id: confirmDialog.file.id });
+    } else if (confirmDialog.action === "enable") {
+      updateMutation.mutate({ id: confirmDialog.file.id, data: { isActive: true } });
+    } else if (confirmDialog.action === "disable") {
+      updateMutation.mutate({ id: confirmDialog.file.id, data: { isActive: false } });
+    }
   };
 
   return (
@@ -103,89 +123,123 @@ function AdminKnowledgeDetailFilesTab({ keyword, status, page, onPageChange }: P
 
       {/* Table */}
       <div className="overflow-x-auto rounded-md border">
-        <table className="min-w-full text-sm">
-          <thead className="bg-muted/50">
-            <tr>
-              <th className="px-3 py-3 text-left font-medium">NO</th>
-              <th className="px-3 py-3 text-left font-medium">FILE NAME</th>
-              <th className="px-3 py-3 text-left font-medium">TOKENS</th>
-              <th className="px-3 py-3 text-left font-medium">UPLOADED AT</th>
-              <th className="px-3 py-3 text-left font-medium">STATUS</th>
-              <th className="px-3 py-3 text-left font-medium">ACTION</th>
-            </tr>
-          </thead>
-          <tbody>
-            {paged.length === 0 ? (
+        {isLoading || isFetching ? (
+          <div className="p-6 text-sm text-muted-foreground">Loading files…</div>
+        ) : isError ? (
+          <div className="p-6 text-sm text-red-600">Failed to load files.</div>
+        ) : (
+          <table className="min-w-full text-sm">
+            <thead className="bg-muted/50">
               <tr>
-                <td colSpan={6} className="px-3 py-8 text-center text-muted-foreground">
-                  No files found
-                </td>
+                <th className="px-3 py-3 text-left font-medium">NO</th>
+                <th className="px-3 py-3 text-left font-medium">FILE NAME</th>
+                <th className="px-3 py-3 text-left font-medium">TOKENS</th>
+                <th className="px-3 py-3 text-left font-medium">UPLOADED AT</th>
+                <th className="px-3 py-3 text-left font-medium">STATUS</th>
+                <th className="px-3 py-3 text-left font-medium">ACTION</th>
               </tr>
-            ) : (
-              paged.map((file, idx) => (
-                <tr key={file.id} className="border-t">
-                  <td className="px-3 py-3">{(currentPage - 1) * pageSize + idx + 1}</td>
-                  <td className="px-3 py-3">
-                    <div className="flex items-center gap-2">
-                      <FileText className="h-4 w-4 text-muted-foreground" />
-                      <span className="font-medium">{file.name}</span>
-                    </div>
-                  </td>
-                  <td className="px-3 py-3">{file.tokens}</td>
-                  <td className="px-3 py-3">{file.uploadedAt}</td>
-                  <td className="px-3 py-3">
-                    <span
-                      className={cn(
-                        "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium",
-                        file.status === "Processed" 
-                          ? "bg-emerald-100 text-emerald-700"
-                          : file.status === "Processing"
-                          ? "bg-yellow-100 text-yellow-700"
-                          : file.status === "Pending"
-                          ? "bg-blue-100 text-blue-700"
-                          : "bg-red-100 text-red-700"
-                      )}
-                    >
-                      {file.status}
-                    </span>
-                  </td>
-                  <td className="px-3 py-3">
-                    <div className="inline-flex overflow-hidden rounded-md border">
-                      <button
-                        className="p-2.5 hover:bg-muted"
-                        aria-label="Download"
-                        title="Download"
-                      >
-                        <Download className="h-4 w-4" />
-                      </button>
-                      <button
-                        className="border-l p-2.5 hover:bg-muted"
-                        aria-label="Edit"
-                        title="Edit"
-                      >
-                        <Edit className="h-4 w-4" />
-                      </button>
-                      <button
-                        onClick={() => handleActionClick("delete", file)}
-                        className="border-l p-2.5 text-red-600 hover:bg-muted"
-                        aria-label="Delete"
-                        title="Delete"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
-                    </div>
+            </thead>
+            <tbody>
+              {apiRows.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="px-3 py-8 text-center text-muted-foreground">
+                    No files found
                   </td>
                 </tr>
-              ))
-            )}
-          </tbody>
-        </table>
+              ) : (
+                apiRows.map((file, idx) => (
+                  <tr key={file.id} className="border-t">
+                    <td className="px-3 py-3">{(currentPage - 1) * pageSize + idx + 1}</td>
+                    <td className="px-3 py-3">
+                      <div className="flex items-center gap-2">
+                        <FileText className="h-4 w-4 text-muted-foreground" />
+                        <span className="font-medium">{file.fileName}</span>
+                      </div>
+                    </td>
+                    <td className="px-3 py-3">{file.fileSize ? `${file.fileSize} bytes` : "N/A"}</td>
+                    <td className="px-3 py-3">
+                      {file.createdAt ? new Date(file.createdAt).toLocaleDateString('en-US', {
+                        year: 'numeric',
+                        month: 'long',
+                        day: '2-digit',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        hour12: true
+                      }) : "N/A"}
+                    </td>
+                    <td className="px-3 py-3">
+                      <span
+                        className={cn(
+                          "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium",
+                          file.status === "processed" 
+                            ? "bg-emerald-100 text-emerald-700"
+                            : file.status === "processing"
+                            ? "bg-yellow-100 text-yellow-700"
+                            : file.status === "pending"
+                            ? "bg-blue-100 text-blue-700"
+                            : "bg-red-100 text-red-700"
+                        )}
+                      >
+                        {file.status}
+                      </span>
+                    </td>
+                    <td className="px-3 py-3">
+                      <div className="inline-flex overflow-hidden rounded-md border">
+                        <button
+                          className="p-2.5 hover:bg-muted"
+                          aria-label="Download"
+                          title="Download"
+                        >
+                          <Download className="h-4 w-4" />
+                        </button>
+                        <button
+                          className="border-l p-2.5 hover:bg-muted"
+                          aria-label="Edit"
+                          title="Edit"
+                        >
+                          <Edit className="h-4 w-4" />
+                        </button>
+                        {file.isActive ? (
+                          <button
+                            onClick={() => handleActionClick("disable", file)}
+                            className="border-l p-2.5 text-orange-600 hover:bg-muted"
+                            aria-label="Disable"
+                            title="Disable"
+                          >
+                            <Pause className="h-4 w-4" />
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => handleActionClick("enable", file)}
+                            className="border-l p-2.5 text-green-600 hover:bg-muted"
+                            aria-label="Enable"
+                            title="Enable"
+                          >
+                            <Play className="h-4 w-4" />
+                          </button>
+                        )}
+                        <button
+                          onClick={() => handleActionClick("delete", file)}
+                          className="border-l p-2.5 text-red-600 hover:bg-muted"
+                          aria-label="Delete"
+                          title="Delete"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        )}
       </div>
 
       {/* Pagination */}
       <div className="flex items-center justify-between gap-2">
         <p className="text-sm text-muted-foreground">
-          Page {currentPage} of {totalPages} • {filtered.length} files
+          Page {currentPage} of {totalPages} • {apiRows.length} files
         </p>
         <Pagination
           currentPage={currentPage}
@@ -200,11 +254,11 @@ function AdminKnowledgeDetailFilesTab({ keyword, status, page, onPageChange }: P
         isOpen={confirmDialog.isOpen}
         onClose={() => setConfirmDialog(prev => ({ ...prev, isOpen: false }))}
         onConfirm={handleConfirmAction}
-        title="Confirm Delete"
-        message={`Are you sure to delete ${confirmDialog.file?.name}?`}
-        confirmText="Delete"
+        title="Confirm Action"
+        message={`Are you sure to ${confirmDialog.action} ${confirmDialog.file?.fileName}?`}
+        confirmText={deleteMutation.isPending || updateMutation.isPending ? "Working..." : "OK"}
         cancelText="Cancel"
-        variant="destructive"
+        variant={confirmDialog.action === "delete" ? "destructive" : "default"}
       />
     </div>
   );

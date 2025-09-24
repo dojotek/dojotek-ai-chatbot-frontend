@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { useParams } from "next/navigation";
 import { ArrowLeft, Plus, RotateCcw } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -10,14 +11,33 @@ import AdminKnowledgeDetailFilesTab from "./partials/AdminKnowledgeDetailFilesTa
 import AdminKnowledgeDetailPlaygroundTab from "./partials/AdminKnowledgeDetailPlaygroundTab";
 import { MultiSelectFilter, MultiSelectOption } from "@/components/ui/multi-select-filter";
 import { faker } from "@faker-js/faker";
+import { useKnowledgesControllerFindOne } from "@/sdk/knowledges/knowledges";
+import { useKnowledgeFilesControllerFindByKnowledge } from "@/sdk/knowledge-files/knowledge-files";
+import type { KnowledgeFile as ApiKnowledgeFile } from "@/sdk/models/knowledgeFile";
 
 function AdminKnowledgeDetail() {
+  const params = useParams();
+  const knowledgeId = params.knowledgeId as string;
+  
   const [activeTab, setActiveTab] = useState("files");
+
+  // Fetch knowledge data
+  const { data: knowledgeData, isLoading: knowledgeLoading, isError: knowledgeError } = useKnowledgesControllerFindOne(
+    knowledgeId,
+    { query: { enabled: !!knowledgeId } }
+  );
 
   // Files tab filters
   const [filesKeyword, setFilesKeyword] = useState("");
-  const [filesStatus, setFilesStatus] = useState<"All" | "Error" | "Pending" | "Processing" | "Processed">("All");
+  const [filesStatus, setFilesStatus] = useState<"All" | "failed" | "pending" | "processing" | "processed">("All");
   const [filesPage, setFilesPage] = useState(1);
+
+  // Fetch knowledge files
+  const { data: filesData, isLoading: filesLoading, isError: filesError } = useKnowledgeFilesControllerFindByKnowledge(
+    knowledgeId,
+    { skip: (filesPage - 1) * 10, take: 10 },
+    { query: { enabled: !!knowledgeId } }
+  );
 
   // Playground tab filters (select files)
   type KnowledgeFile = {
@@ -28,33 +48,12 @@ function AdminKnowledgeDetail() {
     status: "Error" | "Pending" | "Processing" | "Processed";
   };
 
-  // Generate sample files (for options) – demo parity with Files tab
-  const fileOptions: MultiSelectOption[] = (() => {
-    const rows: KnowledgeFile[] = [];
-    const fileExtensions = ["pdf", "docx", "pptx", "txt"];
-    const statuses: KnowledgeFile["status"][] = ["Error", "Pending", "Processing", "Processed"];
-    const tokenRanges = ["10+", "50+", "100+", "300+", "500+", "800+", "1200+", "2000+"];
-    for (let i = 0; i < 50; i++) {
-      const ext = faker.helpers.arrayElement(fileExtensions);
-      const status = faker.helpers.arrayElement(statuses);
-      const tokens = faker.helpers.arrayElement(tokenRanges);
-      rows.push({
-        id: faker.string.uuid(),
-        name: `${faker.lorem.words(2).replace(/\s/g, '-')}.${ext}`,
-        tokens,
-        uploadedAt: faker.date.recent({ days: 30 }).toLocaleDateString('en-US', {
-          year: 'numeric',
-          month: 'long',
-          day: '2-digit',
-          hour: '2-digit',
-          minute: '2-digit',
-          hour12: true
-        }),
-        status,
-      });
-    }
-    return rows.map((f) => ({ value: f.id, label: f.name, disabled: false }));
-  })();
+  // Generate file options from API data
+  const fileOptions: MultiSelectOption[] = (filesData?.data ?? []).map((file: ApiKnowledgeFile) => ({
+    value: file.id,
+    label: file.fileName,
+    disabled: false
+  }));
   const [selectedFiles, setSelectedFiles] = useState<string[]>([]);
 
   return (
@@ -83,11 +82,20 @@ function AdminKnowledgeDetail() {
           >
             <ArrowLeft className="h-4 w-4" />
           </Link>
-          <h1 className="text-xl font-semibold md:text-2xl">Knowledge Details</h1>
+          <div>
+            <h1 className="text-xl font-semibold md:text-2xl">
+              {knowledgeLoading ? "Loading..." : knowledgeError ? "Knowledge Not Found" : knowledgeData?.data?.name || "Knowledge Details"}
+            </h1>
+            {knowledgeData?.data && (
+              <p className="text-sm text-muted-foreground mt-1">
+                {knowledgeData.data.isActive ? "Active" : "Inactive"}
+              </p>
+            )}
+          </div>
         </div>
         {activeTab === "files" && (
           <Link
-            href="file/new"
+            href={`/admin/knowledges/detail/${knowledgeId}/file/new`}
             className={
               cn(
                 "inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground",
@@ -149,10 +157,10 @@ function AdminKnowledgeDetail() {
                 className="w-full rounded-md border bg-background px-4 py-2.5 text-sm"
               >
                 <option value="All">All Status</option>
-                <option value="Error">Error</option>
-                <option value="Pending">Pending</option>
-                <option value="Processing">Processing</option>
-                <option value="Processed">Processed</option>
+                <option value="failed">Failed</option>
+                <option value="pending">Pending</option>
+                <option value="processing">Processing</option>
+                <option value="processed">Processed</option>
               </select>
               <div className="flex md:col-span-2 lg:col-span-1">
                 <button
@@ -200,10 +208,13 @@ function AdminKnowledgeDetail() {
 
         <TabsContent value="files" className="mt-6">
           <AdminKnowledgeDetailFilesTab 
+            knowledgeId={knowledgeId}
             keyword={filesKeyword}
             status={filesStatus}
             page={filesPage}
             onPageChange={setFilesPage}
+            onKeywordChange={setFilesKeyword}
+            onStatusChange={setFilesStatus}
           />
         </TabsContent>
 
