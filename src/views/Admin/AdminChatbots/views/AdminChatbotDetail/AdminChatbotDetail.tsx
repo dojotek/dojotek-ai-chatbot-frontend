@@ -11,9 +11,15 @@ import AdminChatbotDetailKnowledgesTab from "./partials/AdminChatbotDetailKnowle
 import AdminChatbotDetailPlaygroundTab from "./partials/AdminChatbotDetailPlaygroundTab";
 import AdminChatbotDetailChannelsTab from "./partials/AdminChatbotDetailChannelsTab";
 import { faker } from "@faker-js/faker";
+import { useParams } from "next/navigation";
+import { useChatAgentsControllerFindOne } from "@/sdk/chat-agents/chat-agents";
 
 function AdminChatbotDetail() {
   const [activeTab, setActiveTab] = useState("monitoring");
+  const params = useParams<{ id?: string }>();
+  const chatAgentId = params?.id as string;
+  const { data: agentResp } = useChatAgentsControllerFindOne(chatAgentId, { query: {} } as any);
+  const agent = agentResp?.data as any;
   // Knowledges filters
   const [knowledgeKeyword, setKnowledgeKeyword] = useState("");
   const [knowledgeStatus, setKnowledgeStatus] = useState<"All" | "Active" | "Inactive">("All");
@@ -249,7 +255,7 @@ function AdminChatbotDetail() {
         </TabsContent>
 
         <TabsContent value="configuration" className="mt-6">
-          <AdminChatbotDetailConfigurationTab />
+          <AdminChatbotDetailConfigurationTab agent={agent} />
         </TabsContent>
 
         <TabsContent value="knowledges" className="mt-6">

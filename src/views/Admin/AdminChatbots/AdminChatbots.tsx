@@ -3,104 +3,70 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { cn } from "@/lib/utils";
-import { faker } from "@faker-js/faker";
 import { Pencil, Pause, Play, Trash2, Plus, RotateCcw } from "lucide-react";
 import { Pagination } from "@/components/ui/pagination";
 import { ConfirmationDialog } from "@/components/ui/confirmation-dialog";
-
-type Chatbot = {
-  id: string;
-  title: string;
-  platform: ChatbotPlatform;
-  channelsCount: number; // 1..5
-  knowledgesCount: number; // 1..5
-  lastUpdate: string;
-  status: "Active" | "Inactive";
-};
-
-type ChatbotPlatform =
-  | "Slack"
-  | "Lark"
-  | "Microsoft Team"
-  | "Shopify"
-  | "WordPress"
-  | "Discord"
-  | "Telegram"
-  | "WhatsApp";
-
-const PLATFORM_OPTIONS: ChatbotPlatform[] = [
-  "Slack",
-  "Lark",
-  "Microsoft Team",
-  "Shopify",
-  "WordPress",
-  "Discord",
-  "Telegram",
-  "WhatsApp",
-];
-
-const sampleChatbots: Chatbot[] = (() => {
-  const rows: Chatbot[] = [];
-  for (let i = 0; i < 500; i++) {
-    const isActive = faker.number.int({ min: 0, max: 100 }) < 70;
-    const randomDate = faker.date.between({ from: new Date(2023, 0, 1), to: new Date() });
-    const lastUpdate = new Intl.DateTimeFormat("en-US", {
-      month: "long",
-      day: "2-digit",
-      year: "numeric",
-    }).format(randomDate);
-    rows.push({
-      id: faker.string.uuid(),
-      title: faker.commerce.productName(),
-      platform: faker.helpers.arrayElement(PLATFORM_OPTIONS),
-      channelsCount: faker.number.int({ min: 1, max: 5 }),
-      knowledgesCount: faker.number.int({ min: 1, max: 5 }),
-      lastUpdate,
-      status: isActive ? "Active" : "Inactive",
-    });
-  }
-  return rows;
-})();
+import { useQueryClient } from "@tanstack/react-query";
+import { useChatAgentsControllerFindAll, useChatAgentsControllerRemove, useChatAgentsControllerUpdate } from "@/sdk/chat-agents/chat-agents";
+import { useCustomersControllerFindAll } from "@/sdk/customers/customers";
+import type { ChatAgent } from "@/sdk/models";
 
 function AdminChatbots() {
   const [keyword, setKeyword] = useState("");
-  const [platform, setPlatform] = useState<"All" | ChatbotPlatform>("All");
+  const [customerId, setCustomerId] = useState<string>("");
   const [status, setStatus] = useState<"All" | "Active" | "Inactive">("All");
   const [page, setPage] = useState(1);
   const pageSize = 10;
-  
+
+  const queryClient = useQueryClient();
+
+  // Customers dropdown for filtering
+  const { data: customersResp } = useCustomersControllerFindAll(
+    {
+      skip: 0,
+      take: 1000,
+      search: "",
+    } as any,
+    { query: {} }
+  );
+  const customers = useMemo(() => (customersResp?.data ?? []) as any[], [customersResp]);
+
+  // Fetch chat agents for current page
+  const { data: agentsResp, isFetching } = useChatAgentsControllerFindAll(
+    {
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+      search: keyword,
+      customerId: customerId || "",
+    } as any,
+    { query: {} }
+  );
+  const rows = useMemo(() => (agentsResp?.data ?? []) as ChatAgent[], [agentsResp]);
+
+  // We don't have total count; infer if there might be a next page
+  const hasNext = rows.length === pageSize;
+  const totalPages = Math.max(1, page + (hasNext ? 1 : 0));
+  const currentPage = Math.min(page, totalPages);
+
   // Confirmation dialog states
   const [confirmDialog, setConfirmDialog] = useState<{
     isOpen: boolean;
     action: "pause" | "resume" | "delete";
-    chatbot: Chatbot | null;
+    chatbot: ChatAgent | null;
   }>({
     isOpen: false,
     action: "pause",
     chatbot: null,
   });
 
-  const filtered = useMemo(() => {
-    return sampleChatbots.filter((b) => {
-      const matchKeyword = b.title.toLowerCase().includes(keyword.toLowerCase());
-      const matchPlatform = platform === "All" ? true : b.platform === platform;
-      const matchStatus = status === "All" ? true : b.status === status;
-      return matchKeyword && matchPlatform && matchStatus;
-    });
-  }, [keyword, platform, status]);
-
-  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
-  const currentPage = Math.min(page, totalPages);
-  const paged = filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize);
-
   const resetFilters = () => {
     setKeyword("");
-    setPlatform("All");
+    setCustomerId("");
     setStatus("All");
     setPage(1);
   };
 
-  const handleActionClick = (action: "pause" | "resume" | "delete", chatbot: Chatbot) => {
+  const handleActionClick = (action: "pause" | "resume" | "delete", chatbot: ChatAgent) => {
     setConfirmDialog({
       isOpen: true,
       action,
@@ -108,14 +74,30 @@ function AdminChatbots() {
     });
   };
 
+  const updateMutation = useChatAgentsControllerUpdate({ mutation: {
+    onSuccess: () => {
+      if (confirmDialog.chatbot) {
+        queryClient.invalidateQueries({ queryKey: ["http://localhost:3000/chat-agents"] });
+      }
+      setConfirmDialog((prev) => ({ ...prev, isOpen: false }));
+    },
+  }} as any);
+  const deleteMutation = useChatAgentsControllerRemove({ mutation: {
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["http://localhost:3000/chat-agents"] });
+      setConfirmDialog((prev) => ({ ...prev, isOpen: false }));
+    },
+  }} as any);
+
   const handleConfirmAction = () => {
     if (!confirmDialog.chatbot) return;
-    
-    // Here you would typically make an API call
-    console.log(`${confirmDialog.action} chatbot:`, confirmDialog.chatbot);
-    
-    // For demo purposes, we'll just log the action
-    // In a real app, you'd update the chatbot status or delete the chatbot
+    const bot = confirmDialog.chatbot;
+    if (confirmDialog.action === "delete") {
+      deleteMutation.mutate({ id: bot.id } as any);
+      return;
+    }
+    const newActive = confirmDialog.action === "resume";
+    updateMutation.mutate({ id: bot.id, data: { isActive: newActive } } as any);
   };
 
   return (
@@ -161,16 +143,16 @@ function AdminChatbots() {
           className="w-full rounded-md border bg-background px-4 py-2.5 text-sm"
         />
         <select
-          value={platform}
+          value={customerId}
           onChange={(e) => {
             setPage(1);
-            setPlatform(e.target.value as any);
+            setCustomerId(e.target.value);
           }}
           className="w-full rounded-md border bg-background px-4 py-2.5 text-sm"
         >
-          <option value="All">All Channels</option>
-          {PLATFORM_OPTIONS.map((p) => (
-            <option key={p} value={p}>{p}</option>
+          <option value="">All Customers</option>
+          {customers.map((c) => (
+            <option key={c.id} value={c.id}>{c.name}</option>
           ))}
         </select>
         <select
@@ -203,48 +185,38 @@ function AdminChatbots() {
             <tr>
               <th className="px-3 py-3 text-left font-medium">NO</th>
               <th className="px-3 py-3 text-left font-medium">TITLE</th>
-              <th className="px-3 py-3 text-left font-medium">CHANNEL</th>
-              <th className="px-3 py-3 text-left font-medium">CHANNELS</th>
-              <th className="px-3 py-3 text-left font-medium">KNOWLEDGES</th>
+              <th className="px-3 py-3 text-left font-medium">CUSTOMER</th>
               <th className="px-3 py-3 text-left font-medium">LAST UPDATE</th>
               <th className="px-3 py-3 text-left font-medium">STATUS</th>
               <th className="px-3 py-3 text-left font-medium">ACTION</th>
             </tr>
           </thead>
           <tbody>
-            {paged.length === 0 ? (
+            {rows.filter((r) => (status === "All" ? true : r.isActive === (status === "Active"))).length === 0 ? (
               <tr>
                 <td colSpan={8} className="px-3 py-8 text-center text-muted-foreground">
                   No data
                 </td>
               </tr>
             ) : (
-              paged.map((b, idx) => (
+              rows
+                .filter((r) => (status === "All" ? true : r.isActive === (status === "Active")))
+                .map((b, idx) => (
                 <tr key={b.id} className="border-t">
                   <td className="px-3 py-3">{(currentPage - 1) * pageSize + idx + 1}</td>
-                  <td className="px-3 py-3">{b.title}</td>
-                  <td className="px-3 py-3">{b.platform}</td>
-                  <td className="px-3 py-3">
-                    <span className="inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium">
-                      {b.channelsCount}
-                    </span>
-                  </td>
-                  <td className="px-3 py-3">
-                    <span className="inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium">
-                      {b.knowledgesCount}
-                    </span>
-                  </td>
-                  <td className="px-3 py-3">{b.lastUpdate}</td>
+                  <td className="px-3 py-3">{b.name}</td>
+                  <td className="px-3 py-3">{customers.find((c) => c.id === b.customerId)?.name ?? b.customerId}</td>
+                  <td className="px-3 py-3">{new Date(b.updatedAt).toLocaleDateString()}</td>
                   <td className="px-3 py-3">
                     <span
                       className={
                         cn(
                           "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium",
-                          b.status === "Active" ? "bg-emerald-100 text-emerald-700" : "bg-neutral-200 text-neutral-700"
+                          b.isActive ? "bg-emerald-100 text-emerald-700" : "bg-neutral-200 text-neutral-700"
                         )
                       }
                     >
-                      {b.status}
+                      {b.isActive ? "Active" : "Inactive"}
                     </span>
                   </td>
                   <td className="px-3 py-3">
@@ -257,7 +229,7 @@ function AdminChatbots() {
                       >
                         <Pencil className="h-4 w-4" />
                       </Link>
-                      {b.status === "Active" ? (
+                      {b.isActive ? (
                         <button
                           onClick={() => handleActionClick("pause", b)}
                           className="border-l p-2.5 hover:bg-muted"
@@ -296,7 +268,7 @@ function AdminChatbots() {
       {/* Pagination */}
       <div className="flex items-center justify-between gap-2">
         <p className="text-sm text-muted-foreground">
-          Page {currentPage} of {totalPages} • {filtered.length} items
+          Page {currentPage} of {totalPages} • {rows.length} items {isFetching ? "(loading...)" : ""}
         </p>
         <Pagination
           currentPage={currentPage}
@@ -312,7 +284,7 @@ function AdminChatbots() {
         onClose={() => setConfirmDialog(prev => ({ ...prev, isOpen: false }))}
         onConfirm={handleConfirmAction}
         title="Confirm Action"
-        message={`Are you sure to ${confirmDialog.action} ${confirmDialog.chatbot?.title}?`}
+        message={`Are you sure to ${confirmDialog.action} ${confirmDialog.chatbot?.name}?`}
         confirmText="OK"
         cancelText="Cancel"
         variant={confirmDialog.action === "delete" ? "destructive" : "default"}
