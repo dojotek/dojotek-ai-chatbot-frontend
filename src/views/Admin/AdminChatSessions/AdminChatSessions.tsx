@@ -3,10 +3,12 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
-import { faker } from "@faker-js/faker";
 import { Eye, Trash2, RotateCcw } from "lucide-react";
 import { Pagination } from "@/components/ui/pagination";
 import { ConfirmationDialog } from "@/components/ui/confirmation-dialog";
+import { useChatSessionsControllerFindAll, useChatSessionsControllerRemove } from "@/sdk/chat-sessions/chat-sessions";
+import { useChatAgentsControllerFindAll } from "@/sdk/chat-agents/chat-agents";
+import { useCustomersControllerFindAll } from "@/sdk/customers/customers";
 
 type ChannelPlatform =
   | "Slack"
@@ -17,9 +19,10 @@ type ChannelPlatform =
 
 type ChatSessionRow = {
   id: string;
-  chatbotTitle: string;
+  chatAgentId: string;
+  chatAgentName: string;
   platform: ChannelPlatform;
-  customerCompany: string;
+  customerName: string;
   initiatedAt: Date;
 };
 
@@ -31,28 +34,7 @@ const PLATFORM_OPTIONS: ChannelPlatform[] = [
   "Lark",
 ];
 
-// Generate sample chatbots (names mirror AdminChatbots style)
-const SAMPLE_CHATBOTS: string[] = (() => {
-  const names = new Set<string>();
-  while (names.size < 80) {
-    names.add(faker.commerce.productName());
-  }
-  return Array.from(names);
-})();
-
-const sampleChatSessions: ChatSessionRow[] = (() => {
-  const rows: ChatSessionRow[] = [];
-  for (let i = 0; i < 500; i++) {
-    rows.push({
-      id: faker.string.uuid(),
-      chatbotTitle: faker.helpers.arrayElement(SAMPLE_CHATBOTS),
-      platform: faker.helpers.arrayElement(PLATFORM_OPTIONS),
-      customerCompany: faker.company.name(),
-      initiatedAt: faker.date.past({ years: 1 }),
-    });
-  }
-  return rows;
-})();
+// data is loaded from SDK hooks below
 
 function formatInitiatedAt(date: Date) {
   const month = date.toLocaleString("en-US", { month: "long" });
@@ -85,22 +67,55 @@ function AdminChatSessions() {
     session: null,
   });
 
+  // fetch dropdown data
+  const { data: agentsResp } = useChatAgentsControllerFindAll({ skip: 0, take: 1000, search: "", customerId: "" });
+  const agents = agentsResp?.data ?? [];
+  const { data: customersResp } = useCustomersControllerFindAll({ skip: 0, take: 1000, search: "", industry: "", isActive: "" });
+  const customers = customersResp?.data ?? [];
+
+  const agentIdToName = useMemo(() => {
+    const m = new Map<string, string>();
+    agents.forEach(a => m.set(a.id, a.name));
+    return m;
+  }, [agents]);
+
+  // fetch sessions (client-side filtered/paginated)
+  const { data: sessionsResp, refetch } = useChatSessionsControllerFindAll({
+    skip: 0,
+    take: 1000,
+    search: "",
+    chatAgentId: chatbot === "All" ? "" : chatbot,
+    customerStaffId: "",
+    platform: channel === "All" ? "" : channel,
+    status: "",
+  });
+  const sessions = sessionsResp?.data ?? [];
+
   const chatbotOptions = useMemo(() => {
-    return Array.from(new Set(sampleChatSessions.map((r) => r.chatbotTitle))).sort();
-  }, []);
+    return agents.map(a => ({ id: a.id, name: a.name }));
+  }, [agents]);
 
   const customerOptions = useMemo(() => {
-    return Array.from(new Set(sampleChatSessions.map((r) => r.customerCompany))).sort();
-  }, []);
+    return customers.map(c => c.name).sort();
+  }, [customers]);
 
   const filtered = useMemo(() => {
-    return sampleChatSessions.filter((r) => {
-      const matchChatbot = chatbot === "All" ? true : r.chatbotTitle === chatbot;
+    const rows: ChatSessionRow[] = sessions.map(s => ({
+      id: s.id,
+      chatAgentId: s.chatAgentId,
+      chatAgentName: agentIdToName.get(s.chatAgentId) ?? "-",
+      platform: s.platform as unknown as ChannelPlatform,
+      customerName: "",
+      initiatedAt: new Date(s.createdAt),
+    }));
+
+    return rows.filter((r) => {
+      const matchChatbot = chatbot === "All" ? true : r.chatAgentId === chatbot;
       const matchChannel = channel === "All" ? true : r.platform === channel;
-      const matchCustomer = customer === "" ? true : r.customerCompany === customer;
+      const matchCustomer = customer === "" ? true : r.customerName === customer;
       return matchChatbot && matchChannel && matchCustomer;
     });
-  }, [chatbot, channel, customer]);
+  }, [sessions, agentIdToName, chatbot, channel, customer]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
   const currentPage = Math.min(page, totalPages);
@@ -125,14 +140,16 @@ function AdminChatSessions() {
     });
   };
 
-  const handleConfirmAction = () => {
+  const { mutateAsync: removeSession, isPending: isDeleting } = useChatSessionsControllerRemove({});
+
+  const handleConfirmAction = async () => {
     if (!confirmDialog.session) return;
-    
-    // Here you would typically make an API call
-    console.log(`${confirmDialog.action} session:`, confirmDialog.session);
-    
-    // For demo purposes, we'll just log the action
-    // In a real app, you'd view the session details or delete the session
+    try {
+      await removeSession({ id: confirmDialog.session.id });
+      await refetch();
+    } finally {
+      setConfirmDialog(prev => ({ ...prev, isOpen: false }));
+    }
   };
 
   return (
@@ -164,8 +181,8 @@ function AdminChatSessions() {
           className="w-full rounded-md border bg-background px-4 py-2.5 text-sm"
         >
           <option value="All">All Chatbots</option>
-          {chatbotOptions.map((name) => (
-            <option key={name} value={name}>{name}</option>
+          {chatbotOptions.map((a) => (
+            <option key={a.id} value={a.id}>{a.name}</option>
           ))}
         </select>
         <select
@@ -181,24 +198,19 @@ function AdminChatSessions() {
             <option key={p} value={p}>{p}</option>
           ))}
         </select>
-        <div>
-          <input
-            type="text"
-            list="customer-options"
-            value={customer}
-            onChange={(e) => {
-              setPage(1);
-              setCustomer(e.target.value);
-            }}
-            placeholder="Select Customer..."
-            className="w-full rounded-md border bg-background px-4 py-2.5 text-sm"
-          />
-          <datalist id="customer-options">
-            {customerOptions.map((c) => (
-              <option key={c} value={c} />
-            ))}
-          </datalist>
-        </div>
+        <select
+          value={customer}
+          onChange={(e) => {
+            setPage(1);
+            setCustomer(e.target.value);
+          }}
+          className="w-full rounded-md border bg-background px-4 py-2.5 text-sm"
+        >
+          <option value="">All Customers</option>
+          {customerOptions.map((c) => (
+            <option key={c} value={c}>{c}</option>
+          ))}
+        </select>
         <div className="flex md:col-span-2 lg:col-span-1">
           <button
             onClick={resetFilters}
@@ -234,9 +246,9 @@ function AdminChatSessions() {
               paged.map((r, idx) => (
                 <tr key={r.id} className="border-t">
                   <td className="px-3 py-3">{(currentPage - 1) * pageSize + idx + 1}</td>
-                  <td className="px-3 py-3">{r.chatbotTitle}</td>
+                  <td className="px-3 py-3">{r.chatAgentName}</td>
                   <td className="px-3 py-3">{r.platform}</td>
-                  <td className="px-3 py-3">{r.customerCompany}</td>
+                  <td className="px-3 py-3">{r.customerName || '-'}</td>
                   <td className="px-3 py-3">{formatInitiatedAt(r.initiatedAt)}</td>
                   <td className="px-3 py-3">
                     <div className="inline-flex overflow-hidden rounded-md border">
@@ -253,6 +265,7 @@ function AdminChatSessions() {
                         className="border-l p-2.5 text-red-600 hover:bg-muted"
                         aria-label="Delete"
                         title="Delete"
+                        disabled={isDeleting}
                       >
                         <Trash2 className="h-4 w-4" />
                       </button>

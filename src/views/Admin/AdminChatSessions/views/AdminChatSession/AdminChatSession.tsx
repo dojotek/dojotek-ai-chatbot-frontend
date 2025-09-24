@@ -1,57 +1,15 @@
 "use client";
 
 import Link from "next/link";
-import { faker } from "@faker-js/faker";
+import { useParams } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
+import { useChatSessionsControllerFindOne } from "@/sdk/chat-sessions/chat-sessions";
+import { useChatAgentsControllerFindOne } from "@/sdk/chat-agents/chat-agents";
+import { useCustomerStaffsControllerFindOne } from "@/sdk/customer-staffs/customer-staffs";
+import { useCustomersControllerFindOne } from "@/sdk/customers/customers";
+import { useChatMessagesControllerFindAll } from "@/sdk/chat-messages/chat-messages";
 
-type ChatMessage = {
-  id: string;
-  type: "HUMAN" | "SYSTEM";
-  content: string;
-  timestamp: Date;
-};
-
-type SessionDetails = {
-  id: string;
-  customer: string;
-  customerStaff: string;
-  chatbot: string;
-  channel: string;
-  initiatedAt: Date;
-};
-
-// Generate sample session details
-const sampleSessionDetails: SessionDetails = {
-  id: faker.string.uuid(),
-  customer: faker.company.name(),
-  customerStaff: faker.person.fullName(),
-  chatbot: faker.commerce.productName(),
-  channel: faker.helpers.arrayElement(["Slack", "WhatsApp Business API", "Lark", "Discord", "Telegram"]),
-  initiatedAt: faker.date.past({ years: 1 }),
-};
-
-// Generate sample chat messages
-const sampleChatMessages: ChatMessage[] = (() => {
-  const messages: ChatMessage[] = [];
-  const messageCount = faker.number.int({ min: 8, max: 15 });
-  
-  for (let i = 0; i < messageCount; i++) {
-    const isHuman = faker.datatype.boolean();
-    messages.push({
-      id: faker.string.uuid(),
-      type: isHuman ? "HUMAN" : "SYSTEM",
-      content: isHuman 
-        ? faker.lorem.sentences(faker.number.int({ min: 1, max: 3 }))
-        : faker.lorem.sentences(faker.number.int({ min: 2, max: 5 })),
-      timestamp: faker.date.between({ 
-        from: sampleSessionDetails.initiatedAt, 
-        to: new Date() 
-      }),
-    });
-  }
-  
-  return messages.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
-})();
+// data loaded from SDK hooks below
 
 function formatTimestamp(date: Date) {
   const month = date.toLocaleString("en-US", { month: "long" });
@@ -74,6 +32,25 @@ function formatMessageTime(date: Date) {
 }
 
 function AdminChatSession() {
+  const params = useParams<{ id: string }>();
+  const chatSessionId = params?.id as string;
+
+  // session
+  const { data: sessionResp } = useChatSessionsControllerFindOne(chatSessionId ?? "", {});
+  const session = sessionResp?.data;
+
+  // related entities
+  const { data: agentResp } = useChatAgentsControllerFindOne(session?.chatAgentId ?? "", {});
+  const agent = agentResp?.data;
+  const { data: staffResp } = useCustomerStaffsControllerFindOne(session?.customerStaffId ?? "", {});
+  const staff = staffResp?.data;
+  const { data: customerResp } = useCustomersControllerFindOne(staff?.customerId ?? "", {});
+  const customer = customerResp?.data;
+
+  // messages
+  const { data: messagesResp } = useChatMessagesControllerFindAll({ skip: 0, take: 1000, search: "", chatSessionId: chatSessionId ?? "", messageType: "" });
+  const messages = (messagesResp?.data ?? []).slice().sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+
   return (
     <div className="space-y-4 p-4 md:p-6">
       {/* Breadcrumb */}
@@ -107,23 +84,23 @@ function AdminChatSession() {
         <div className="grid grid-cols-1 gap-8 md:grid-cols-2">
           <div className="space-y-1">
             <dt className="text-sm font-medium text-muted-foreground">CUSTOMER</dt>
-            <dd className="text-sm">{sampleSessionDetails.customer}</dd>
+            <dd className="text-sm">{customer?.name ?? '-'}</dd>
           </div>
           <div className="space-y-1">
             <dt className="text-sm font-medium text-muted-foreground">CUSTOMER STAFF</dt>
-            <dd className="text-sm">{sampleSessionDetails.customerStaff}</dd>
+            <dd className="text-sm">{staff?.name ?? '-'}</dd>
           </div>
           <div className="space-y-1">
             <dt className="text-sm font-medium text-muted-foreground">CHATBOT</dt>
-            <dd className="text-sm">{sampleSessionDetails.chatbot}</dd>
+            <dd className="text-sm">{agent?.name ?? '-'}</dd>
           </div>
           <div className="space-y-1">
             <dt className="text-sm font-medium text-muted-foreground">CHANNEL</dt>
-            <dd className="text-sm">{sampleSessionDetails.channel}</dd>
+            <dd className="text-sm">{session?.platform ?? '-'}</dd>
           </div>
           <div className="space-y-1 md:col-span-2">
             <dt className="text-sm font-medium text-muted-foreground">INITIATED AT</dt>
-            <dd className="text-sm">{formatTimestamp(sampleSessionDetails.initiatedAt)}</dd>
+            <dd className="text-sm">{session?.createdAt ? formatTimestamp(new Date(session.createdAt)) : '-'}</dd>
           </div>
         </div>
       </div>
@@ -132,36 +109,41 @@ function AdminChatSession() {
       <div className="space-y-4">
         <h2 className="text-lg font-semibold">Chat Messages</h2>
         <div className="space-y-3">
-          {sampleChatMessages.map((message) => (
+          {messages.map((message) => (
             <div
               key={message.id}
               className={`flex ${
-                message.type === "HUMAN" ? "justify-end" : "justify-start"
+                message.messageType === 'user' ? "justify-end" : "justify-start"
               }`}
             >
               <div
                 className={`max-w-[80%] space-y-1 ${
-                  message.type === "HUMAN" ? "order-2" : "order-1"
+                  message.messageType === 'user' ? "order-2" : "order-1"
                 }`}
               >
+                {/* Role label outside the balloon */}
                 <div
-                  className={`inline-block rounded-lg p-8 text-sm ${
-                    message.type === "HUMAN"
+                  className={`text-sm font-semibold tracking-wide text-muted-foreground ${
+                    message.messageType === 'user' ? "text-right" : "text-left"
+                  }`}
+                >
+                  {message.messageType === 'user' ? 'HUMAN' : 'AI'}
+                </div>
+                <div
+                  className={`inline-block rounded-3xl py-2 px-4 text-sm ${
+                    message.messageType === 'user'
                       ? "bg-blue-500 text-white"
                       : "bg-gray-100 text-gray-900"
                   }`}
                 >
-                  <div className="mb-1 text-xs font-medium opacity-75">
-                    {message.type}
-                  </div>
                   <div className="whitespace-pre-wrap">{message.content}</div>
                 </div>
                 <div
                   className={`text-xs text-muted-foreground ${
-                    message.type === "HUMAN" ? "text-right" : "text-left"
+                    message.messageType === 'user' ? "text-right" : "text-left"
                   }`}
                 >
-                  {formatMessageTime(message.timestamp)}
+                  {formatMessageTime(new Date(message.createdAt))}
                 </div>
               </div>
             </div>
