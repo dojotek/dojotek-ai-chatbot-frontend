@@ -24,6 +24,7 @@ function AdminChatbotDetail() {
   const [knowledgeKeyword, setKnowledgeKeyword] = useState("");
   const [knowledgeStatus, setKnowledgeStatus] = useState<"All" | "Active" | "Inactive">("All");
   const [knowledgePage, setKnowledgePage] = useState(1);
+  const [isAddKnowledgeOpen, setIsAddKnowledgeOpen] = useState(false);
 
   // Channels filters
   type ChannelPlatform = "Slack" | "Microsoft Team" | "Lark" | "Discord" | "Shopify" | "WordPress";
@@ -96,8 +97,8 @@ function AdminChatbotDetail() {
           <h1 className="text-xl font-semibold md:text-2xl">Chatbot Details</h1>
         </div>
         {activeTab === "knowledges" && (
-          <Link
-            href="/admin/knowledges/new"
+          <button
+            onClick={() => setIsAddKnowledgeOpen(true)}
             className={
               cn(
                 "inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground",
@@ -107,7 +108,7 @@ function AdminChatbotDetail() {
           >
             <Plus className="h-4 w-4" />
             Add Knowledge
-          </Link>
+          </button>
         )}
         {activeTab === "channels" && (
           <Link
@@ -260,10 +261,13 @@ function AdminChatbotDetail() {
 
         <TabsContent value="knowledges" className="mt-6">
           <AdminChatbotDetailKnowledgesTab
+            chatAgentId={chatAgentId}
             keyword={knowledgeKeyword}
             status={knowledgeStatus}
             page={knowledgePage}
             onPageChange={setKnowledgePage}
+            isAddOpen={isAddKnowledgeOpen}
+            onRequestCloseAdd={() => setIsAddKnowledgeOpen(false)}
           />
         </TabsContent>
 

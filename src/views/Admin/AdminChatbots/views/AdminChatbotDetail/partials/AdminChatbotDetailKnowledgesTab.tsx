@@ -1,85 +1,121 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { cn } from "@/lib/utils";
-import { faker } from "@faker-js/faker";
-import { Pencil, Pause, Play, Trash2 } from "lucide-react";
+import { Pencil, Trash2 } from "lucide-react";
 import { Pagination } from "@/components/ui/pagination";
 import { ConfirmationDialog } from "@/components/ui/confirmation-dialog";
+import { useChatAgentKnowledgesControllerFindByChatAgent, useChatAgentKnowledgesControllerRemove, useChatAgentKnowledgesControllerCreate } from "@/sdk/chat-agent-knowledges/chat-agent-knowledges";
+import { useKnowledgesControllerFindAll } from "@/sdk/knowledges/knowledges";
+import { useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 
-type Knowledge = {
+type KnowledgeRow = {
   id: string;
-  title: string;
+  name: string;
   lastUpdate: string;
   status: "Active" | "Inactive";
+  associationId: string; // chatAgentKnowledge id (for delete)
 };
 
-const sampleKnowledges: Knowledge[] = (() => {
-  const rows: Knowledge[] = [];
-  for (let i = 0; i < 48; i++) {
-    const isActive = faker.number.int({ min: 0, max: 100 }) < 70;
-    const randomDate = faker.date.between({ from: new Date(2023, 0, 1), to: new Date() });
-    const lastUpdate = new Intl.DateTimeFormat("en-US", {
-      month: "long",
-      day: "2-digit",
-      year: "numeric",
-    }).format(randomDate);
-    rows.push({
-      id: faker.string.uuid(),
-      title: faker.lorem.sentence({ min: 3, max: 8 }),
-      lastUpdate,
-      status: isActive ? "Active" : "Inactive",
-    });
-  }
-  return rows;
-})();
-
 type Props = {
+  chatAgentId: string;
   keyword: string;
   status: "All" | "Active" | "Inactive";
   page: number;
   onPageChange: (page: number) => void;
+  isAddOpen: boolean;
+  onRequestCloseAdd: () => void;
 };
 
-function AdminChatbotDetailKnowledgesTab({ keyword, status, page, onPageChange }: Props) {
+function AdminChatbotDetailKnowledgesTab({ chatAgentId, keyword, status, page, onPageChange, isAddOpen, onRequestCloseAdd }: Props) {
   const pageSize = 10;
+  const queryClient = useQueryClient();
 
   const [confirmDialog, setConfirmDialog] = useState<{
     isOpen: boolean;
-    action: "pause" | "resume" | "delete";
-    knowledge: Knowledge | null;
+    action: "delete";
+    associationId: string | null;
+    knowledgeName?: string;
   }>({
     isOpen: false,
-    action: "pause",
-    knowledge: null,
+    action: "delete",
+    associationId: null,
+    knowledgeName: "",
   });
 
+  // Fetch linked knowledges for this chat agent
+  const { data: linkedResp, isLoading: isLoadingLinked } = useChatAgentKnowledgesControllerFindByChatAgent(chatAgentId, { query: {} } as any);
+  const linked = (linkedResp?.data ?? []) as any[];
+
+  // Fetch all knowledges for selection/filtering
+  const { data: allKnowledgesResp, isLoading: isLoadingAllKnowledges } = useKnowledgesControllerFindAll({ page: 1, pageSize: 1000 } as any, { query: {} } as any);
+  const allKnowledges = (allKnowledgesResp?.data ?? []) as any[];
+
+  // Build rows from linked associations
+  const rows: KnowledgeRow[] = useMemo(() => {
+    return linked.map((ak: any) => {
+      const k = ak.knowledge;
+      const updatedAt = k?.updatedAt ? new Date(k.updatedAt) : null;
+      const lastUpdate = updatedAt
+        ? new Intl.DateTimeFormat("en-US", { month: "long", day: "2-digit", year: "numeric" }).format(updatedAt)
+        : "-";
+      const isActive = k?.isActive ?? true;
+      return {
+        id: k?.id,
+        name: k?.name ?? "Untitled",
+        lastUpdate,
+        status: isActive ? "Active" : "Inactive",
+        associationId: ak.id,
+      } as KnowledgeRow;
+    });
+  }, [linked]);
+
   const filtered = useMemo(() => {
-    return sampleKnowledges.filter((k) => {
-      const matchKeyword = k.title.toLowerCase().includes(keyword.toLowerCase());
+    return rows.filter((k) => {
+      const matchKeyword = k.name.toLowerCase().includes(keyword.toLowerCase());
       const matchStatus = status === "All" ? true : k.status === status;
       return matchKeyword && matchStatus;
     });
-  }, [keyword, status]);
+  }, [rows, keyword, status]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
   const currentPage = Math.min(page, totalPages);
   const paged = filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize);
 
-  const handleActionClick = (action: "pause" | "resume" | "delete", knowledge: Knowledge) => {
-    setConfirmDialog({
-      isOpen: true,
-      action,
-      knowledge,
-    });
+  const handleDeleteClick = (row: KnowledgeRow) => {
+    setConfirmDialog({ isOpen: true, action: "delete", associationId: row.associationId, knowledgeName: row.name });
   };
 
-  const handleConfirmAction = () => {
-    if (!confirmDialog.knowledge) return;
-    // TODO: Integrate with link/unlink knowledge APIs for this chatbot
-    console.log(`${confirmDialog.action} knowledge:`, confirmDialog.knowledge);
+  const deleteMutation = useChatAgentKnowledgesControllerRemove();
+
+  const handleConfirmAction = async () => {
+    if (!confirmDialog.associationId) return;
+    try {
+      await deleteMutation.mutateAsync({ id: confirmDialog.associationId } as any);
+      await queryClient.invalidateQueries();
+      toast.success("Knowledge removed from chatbot", { duration: 2500 });
+    } catch (e) {
+      const message = (e as any)?.response?.data?.message || "Failed to remove knowledge";
+      toast.error(message, { duration: 3000 });
+    } finally {
+      setConfirmDialog((prev) => ({ ...prev, isOpen: false }));
+    }
   };
+
+  // Add Knowledge modal state (controlled by parent)
+  const [selectedKnowledgeId, setSelectedKnowledgeId] = useState<string>("");
+  useEffect(() => {
+    if (!isAddOpen) setSelectedKnowledgeId("");
+  }, [isAddOpen]);
+
+  const createMutation = useChatAgentKnowledgesControllerCreate();
+
+  const alreadyLinkedIds = useMemo(() => new Set(linked.map((x: any) => x.knowledge?.id)), [linked]);
+  const selectableKnowledges = useMemo(() => {
+    return (allKnowledges || []).filter((k: any) => !alreadyLinkedIds.has(k.id));
+  }, [allKnowledges, alreadyLinkedIds]);
 
   return (
     <div className="space-y-4">
@@ -89,14 +125,18 @@ function AdminChatbotDetailKnowledgesTab({ keyword, status, page, onPageChange }
           <thead className="bg-muted/50">
             <tr>
               <th className="px-3 py-3 text-left font-medium">NO</th>
-              <th className="px-3 py-3 text-left font-medium">TITLE</th>
+              <th className="px-3 py-3 text-left font-medium">NAME</th>
               <th className="px-3 py-3 text-left font-medium">LAST UPDATE</th>
               <th className="px-3 py-3 text-left font-medium">STATUS</th>
               <th className="px-3 py-3 text-left font-medium">ACTION</th>
             </tr>
           </thead>
           <tbody>
-            {paged.length === 0 ? (
+            {isLoadingLinked ? (
+              <tr>
+                <td colSpan={5} className="px-3 py-8 text-center text-muted-foreground">Loading...</td>
+              </tr>
+            ) : paged.length === 0 ? (
               <tr>
                 <td colSpan={5} className="px-3 py-8 text-center text-muted-foreground">
                   No data
@@ -104,9 +144,9 @@ function AdminChatbotDetailKnowledgesTab({ keyword, status, page, onPageChange }
               </tr>
             ) : (
               paged.map((k, idx) => (
-                <tr key={k.id} className="border-t">
+                <tr key={k.associationId} className="border-t">
                   <td className="px-3 py-3">{(currentPage - 1) * pageSize + idx + 1}</td>
-                  <td className="px-3 py-3">{k.title}</td>
+                  <td className="px-3 py-3">{k.name}</td>
                   <td className="px-3 py-3">{k.lastUpdate}</td>
                   <td className="px-3 py-3">
                     <span
@@ -130,27 +170,8 @@ function AdminChatbotDetailKnowledgesTab({ keyword, status, page, onPageChange }
                       >
                         <Pencil className="h-4 w-4" />
                       </Link>
-                      {k.status === "Active" ? (
-                        <button
-                          onClick={() => handleActionClick("pause", k)}
-                          className="border-l p-2.5 hover:bg-muted"
-                          aria-label="Pause"
-                          title="Pause"
-                        >
-                          <Pause className="h-4 w-4" />
-                        </button>
-                      ) : (
-                        <button
-                          onClick={() => handleActionClick("resume", k)}
-                          className="border-l p-2.5 hover:bg-muted"
-                          aria-label="Resume"
-                          title="Resume"
-                        >
-                          <Play className="h-4 w-4" />
-                        </button>
-                      )}
                       <button
-                        onClick={() => handleActionClick("delete", k)}
+                        onClick={() => handleDeleteClick(k)}
                         className="border-l p-2.5 text-red-600 hover:bg-muted"
                         aria-label="Delete"
                         title="Delete"
@@ -185,12 +206,66 @@ function AdminChatbotDetailKnowledgesTab({ keyword, status, page, onPageChange }
         isOpen={confirmDialog.isOpen}
         onClose={() => setConfirmDialog(prev => ({ ...prev, isOpen: false }))}
         onConfirm={handleConfirmAction}
-        title="Confirm Action"
-        message={`Are you sure to ${confirmDialog.action} ${confirmDialog.knowledge?.title}?`}
-        confirmText="OK"
+        title="Remove Knowledge"
+        message={`Are you sure to remove ${confirmDialog.knowledgeName}?`}
+        confirmText="Remove"
         cancelText="Cancel"
-        variant={confirmDialog.action === "delete" ? "destructive" : "default"}
+        variant="destructive"
       />
+
+      {/* Add Knowledge Modal */}
+      {isAddOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-md rounded-md bg-background p-4 shadow-lg bg-white">
+            <h3 className="text-base font-semibold mb-3">Add Knowledge</h3>
+            <div className="space-y-2">
+              <label className="text-sm">Select Knowledge</label>
+              <select
+                className="w-full rounded-md border bg-background px-3 py-2 text-sm"
+                value={selectedKnowledgeId}
+                onChange={(e) => setSelectedKnowledgeId(e.target.value)}
+                disabled={isLoadingAllKnowledges}
+              >
+                <option value="">-- Select --</option>
+                {selectableKnowledges.map((k: any) => (
+                  <option key={k.id} value={k.id}>{k.name}</option>
+                ))}
+              </select>
+            </div>
+            <div className="mt-4 flex items-center justify-end gap-2">
+              <button
+                className="inline-flex items-center rounded-md border px-3 py-2 text-sm"
+                onClick={onRequestCloseAdd}
+              >
+                Cancel
+              </button>
+              <button
+                className={cn(
+                  "inline-flex items-center rounded-md border bg-primary px-3 py-2 text-sm text-primary-foreground",
+                  selectedKnowledgeId ? "opacity-100" : "opacity-60 cursor-not-allowed"
+                )}
+                onClick={async () => {
+                  if (!selectedKnowledgeId) return;
+                  try {
+                    await createMutation.mutateAsync({
+                      data: { chatAgentId, knowledgeId: selectedKnowledgeId, priority: 10 } as any,
+                    } as any);
+                    await queryClient.invalidateQueries();
+                    toast.success("Knowledge added to chatbot", { duration: 2500 });
+                    onRequestCloseAdd();
+                  } catch (e) {
+                    const message = (e as any)?.response?.data?.message || "Failed to add knowledge";
+                    toast.error(message, { duration: 3000 });
+                  }
+                }}
+                disabled={!selectedKnowledgeId || createMutation.isPending}
+              >
+                Save
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
