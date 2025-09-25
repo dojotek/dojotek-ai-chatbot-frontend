@@ -4,9 +4,10 @@
   "private": true,
   "scripts": {
     "dev": "next dev --turbopack --port 4000",
-    "build": "next build --turbopack",
+    "build": "npm run generate:api && next build --turbopack",
     "start": "next start --port 4000",
-    "lint": "eslint"
+    "lint": "eslint",
+    "generate:api": "orval --config ./orval.config.js"
   },
   "dependencies": {
     "@faker-js/faker": "^10.0.0",

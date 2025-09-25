@@ -10,7 +10,7 @@ module.exports = {
         baseUrl: 'http://localhost:3000',
       },
       input: {
-        target: './dojotekchatbot.yaml',
+        target: './dojotek-chatbot.yaml',
       },
     },
   };
