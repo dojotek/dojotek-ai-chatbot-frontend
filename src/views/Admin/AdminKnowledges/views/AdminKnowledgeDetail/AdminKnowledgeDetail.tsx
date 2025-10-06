@@ -223,7 +223,7 @@ function AdminKnowledgeDetail() {
         </TabsContent>
 
         <TabsContent value="playground" className="mt-6">
-          <AdminKnowledgeDetailPlaygroundTab selectedFiles={selectedFiles} />
+          <AdminKnowledgeDetailPlaygroundTab knowledgeId={knowledgeId} selectedFiles={selectedFiles} />
         </TabsContent>
       </Tabs>
     </div>
