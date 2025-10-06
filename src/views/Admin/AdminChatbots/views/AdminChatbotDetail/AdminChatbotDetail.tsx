@@ -272,7 +272,7 @@ function AdminChatbotDetail() {
         </TabsContent>
 
         <TabsContent value="playground" className="mt-6">
-          <AdminChatbotDetailPlaygroundTab />
+          <AdminChatbotDetailPlaygroundTab chatAgentId={chatAgentId} />
         </TabsContent>
 
         <TabsContent value="channels" className="mt-6">
